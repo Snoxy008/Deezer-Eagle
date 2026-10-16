@@ -19,7 +19,7 @@ function makeHome(mods, config) {
       fs.writeFileSync(path.join(dir, name), typeof content === 'string' ? content : JSON.stringify(content));
     }
   }
-  if (config) fs.writeFileSync(path.join(home, 'config.json'), '﻿' + JSON.stringify(config));
+  if (config) fs.writeFileSync(path.join(home, 'config.json'), '\uFEFF' + JSON.stringify(config));
   return home;
 }
 
@@ -165,7 +165,7 @@ test('buildScripts reports syntax errors with the line of the mod file', () => {
   });
   const [, script] = lib.buildScripts(home, lib.loadState(home), '1.0.0');
   assert.equal(script.id, 'typo');
-  assert.match(script.code, /__fail\("typo", "SyntaxError: .* \(mod\.js, ligne 2\)"\)/);
+  assert.match(script.code, /__fail\("typo", "SyntaxError: .* \(mod\.js, line 2\)"\)/);
 });
 
 test('buildScripts runs mods against the client runtime', () => {

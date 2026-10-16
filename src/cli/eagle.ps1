@@ -2,7 +2,7 @@
 #
 # Must keep working on Windows PowerShell 5.1: no ternaries, no `??`,
 # no ConvertFrom-Json -AsHashtable. Saved as UTF-8 with BOM so 5.1 reads
-# the accented messages correctly.
+# any non-ASCII text correctly.
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -32,7 +32,7 @@ $script:UserCss = Join-Path $script:EagleHome 'user.css'
 function Write-Step([string]$Text) { Write-Host "  -> $Text" -ForegroundColor Cyan }
 function Write-Ok([string]$Text) { Write-Host "  OK $Text" -ForegroundColor Green }
 function Write-Warn([string]$Text) { Write-Host "  !! $Text" -ForegroundColor Yellow }
-function Write-Reload { Write-Host '  Recharge Deezer (Ctrl+Shift+R) ou redémarre-le pour appliquer.' -ForegroundColor DarkGray }
+function Write-Reload { Write-Host '  Reload Deezer (Ctrl+Shift+R) or restart it to apply.' -ForegroundColor DarkGray }
 
 # ---------------------------------------------------------------------------
 # Files and JSON
@@ -97,7 +97,7 @@ function ConvertFrom-JsonDictionary([string]$Json) {
 function Get-Config {
     $config = [ordered]@{ disabled = @(); devtools = $false; deezerPath = '' }
     $raw = $null
-    try { $raw = Read-Json $script:ConfigFile } catch { Write-Warn "config.json illisible, valeurs par défaut utilisées." }
+    try { $raw = Read-Json $script:ConfigFile } catch { Write-Warn 'config.json is unreadable, using defaults.' }
     if ($raw) {
         foreach ($property in $raw.PSObject.Properties) { $config[$property.Name] = $property.Value }
     }
@@ -132,7 +132,7 @@ function Read-AsarHeader([string]$Path) {
         [void]$reader.ReadUInt32()
         $jsonLength = $reader.ReadInt32()
         if ($sizePickle -ne 4 -or $jsonLength -le 0 -or $jsonLength -gt $headerSize) {
-            throw "Archive asar invalide : $Path"
+            throw "Invalid asar archive: $Path"
         }
         $json = $script:Utf8.GetString($reader.ReadBytes($jsonLength))
         return [pscustomobject]@{ Json = $json; DataOffset = 8 + [int64]$headerSize }
@@ -146,7 +146,7 @@ function Read-AsarEntry([string]$Path, [string]$Name) {
     $node = ConvertFrom-JsonDictionary $header.Json
     foreach ($part in $Name.Split('/')) {
         $files = $node['files']
-        if (-not $files -or -not ($files.Keys -contains $part)) { throw "$Name absent de $Path" }
+        if (-not $files -or -not ($files.Keys -contains $part)) { throw "$Name not found in $Path" }
         $node = $files[$part]
     }
     $offset = [int64]$node['offset']
@@ -158,7 +158,7 @@ function Read-AsarEntry([string]$Path, [string]$Name) {
         $read = 0
         while ($read -lt $size) {
             $count = $stream.Read($buffer, $read, $size - $read)
-            if ($count -le 0) { throw "Archive asar tronquée : $Path" }
+            if ($count -le 0) { throw "Truncated asar archive: $Path" }
             $read += $count
         }
         return , $buffer
@@ -249,7 +249,7 @@ function Find-Deezer {
         if ((Test-Path -LiteralPath (Join-Path $resources 'app.asar')) -or (Test-Path -LiteralPath (Join-Path $resources '_app.asar'))) {
             $full = Get-FullPath $dir
             if ($full -like '*\WindowsApps\*') {
-                throw "La version Microsoft Store de Deezer ne peut pas être modifiée. Installe la version classique depuis https://www.deezer.com/fr/download"
+                throw 'The Microsoft Store version of Deezer cannot be modified. Install the regular version from https://www.deezer.com/download'
             }
             return $full
         }
@@ -260,7 +260,7 @@ function Find-Deezer {
 function Get-DeezerOrFail {
     $dir = Find-Deezer
     if (-not $dir) {
-        throw "Deezer Desktop introuvable. Installe-le depuis https://www.deezer.com/fr/download (pas la version Microsoft Store), ou indique son dossier : eagle config deezerPath <dossier>"
+        throw 'Deezer Desktop not found. Install it from https://www.deezer.com/download (not the Microsoft Store version), or tell Eagle where it is: eagle config deezerPath <folder>'
     }
     return $dir
 }
@@ -286,7 +286,7 @@ function Get-DeezerProcesses([string]$Dir) {
 function Stop-Deezer([string]$Dir) {
     $processes = Get-DeezerProcesses $Dir
     if ($processes.Count -eq 0) { return $false }
-    Write-Step 'Fermeture de Deezer...'
+    Write-Step 'Closing Deezer...'
     $processes | Stop-Process -Force -ErrorAction SilentlyContinue
     for ($i = 0; $i -lt 50 -and (Get-DeezerProcesses $Dir).Count -gt 0; $i++) { Start-Sleep -Milliseconds 200 }
     Start-Sleep -Milliseconds 500
@@ -296,7 +296,7 @@ function Stop-Deezer([string]$Dir) {
 function Start-Deezer([string]$Dir) {
     $exe = Get-DeezerExe $Dir
     if ($exe) {
-        Write-Step 'Lancement de Deezer...'
+        Write-Step 'Starting Deezer...'
         Start-Process -FilePath $exe
     }
 }
@@ -331,13 +331,13 @@ function New-StubFiles([byte[]]$PackageJson) {
 function Invoke-Apply {
     $dir = Get-DeezerOrFail
     $paths = Get-PatchPaths $dir
-    if (-not (Test-Path -LiteralPath $paths.Asar -PathType Leaf)) { throw "app.asar introuvable dans $dir\resources" }
-    Write-Step "Deezer trouvé : $dir"
+    if (-not (Test-Path -LiteralPath $paths.Asar -PathType Leaf)) { throw "app.asar not found in $dir\resources" }
+    Write-Step "Found Deezer: $dir"
 
     $patched = Test-EagleStub $paths.Asar
     if ($patched) {
         if (-not (Test-Path -LiteralPath $paths.Original)) {
-            throw "Le patch est cassé (_app.asar manquant). Réinstalle Deezer puis relance « eagle apply »."
+            throw 'The patch is broken (_app.asar is missing). Reinstall Deezer, then run "eagle apply" again.'
         }
         $source = $paths.Original
     } else {
@@ -345,7 +345,7 @@ function Invoke-Apply {
         $fuses = $null
         if ($exe) { $fuses = Get-ElectronFuses $exe }
         if ($fuses -and $fuses.Count -gt 4 -and $fuses[4] -eq '1') {
-            throw "Cette version de Deezer vérifie l'intégrité de app.asar : Deezer Eagle ne peut pas la modifier sans la casser. Rien n'a été modifié."
+            throw 'This version of Deezer verifies the integrity of app.asar: Deezer Eagle cannot modify it without breaking it. Nothing was changed.'
         }
         $source = $paths.Asar
     }
@@ -369,7 +369,7 @@ function Invoke-Apply {
         }
         throw
     }
-    Write-Ok 'Deezer est patché : les mods se chargeront au prochain lancement.'
+    Write-Ok 'Deezer is patched: mods will load the next time it starts.'
     if ($wasRunning) { Start-Deezer $dir }
 }
 
@@ -377,11 +377,11 @@ function Invoke-Restore {
     $dir = Get-DeezerOrFail
     $paths = Get-PatchPaths $dir
     if (-not (Test-EagleStub $paths.Asar)) {
-        Write-Ok "Deezer n'est pas patché, rien à restaurer."
+        Write-Ok 'Deezer is not patched, nothing to restore.'
         return
     }
     if (-not (Test-Path -LiteralPath $paths.Original)) {
-        throw "_app.asar est introuvable : réinstalle Deezer pour le réparer."
+        throw '_app.asar is missing: reinstall Deezer to repair it.'
     }
     $wasRunning = Stop-Deezer $dir
     Remove-Item -LiteralPath $paths.Asar -Force
@@ -390,7 +390,7 @@ function Invoke-Restore {
         if (Test-Path -LiteralPath $paths.Unpacked) { Remove-Item -LiteralPath $paths.Unpacked -Recurse -Force }
         Move-Item -LiteralPath $paths.OriginalUnpacked -Destination $paths.Unpacked
     }
-    Write-Ok "Deezer est restauré à son état d'origine."
+    Write-Ok 'Deezer is back to its original state.'
     if ($wasRunning) { Start-Deezer $dir }
 }
 
@@ -403,12 +403,12 @@ function Read-Manifest([string]$Dir) {
 }
 
 function Assert-Manifest($Manifest, [string]$Where) {
-    if (-not $Manifest) { throw "Pas de manifest.json valide dans $Where" }
+    if (-not $Manifest) { throw "No valid manifest.json in $Where" }
     if (-not ($Manifest.id -is [string]) -or $Manifest.id -cnotmatch '^[a-z0-9][a-z0-9_-]{0,63}$') {
-        throw "manifest.json ($Where) : « id » doit être en minuscules (lettres, chiffres, - ou _)."
+        throw "manifest.json ($Where): ""id"" must be lowercase (letters, digits, - or _)."
     }
     foreach ($field in @('name', 'version')) {
-        if (-not $Manifest.$field) { throw "manifest.json ($Where) : le champ « $field » est obligatoire." }
+        if (-not $Manifest.$field) { throw "manifest.json ($Where): the ""$field"" field is required." }
     }
 }
 
@@ -453,7 +453,7 @@ function Get-Mods {
 
 function Get-Mod([string]$Id) {
     $mod = @(Get-Mods) | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
-    if (-not $mod) { throw "Le mod « $Id » n'est pas installé (eagle list)." }
+    if (-not $mod) { throw "Mod ""$Id"" is not installed (see: eagle list)." }
     return $mod
 }
 
@@ -474,7 +474,7 @@ function Get-Registry {
     return ConvertFrom-Json -InputObject $response.Content
 }
 
-# Turns what the user typed into a source: a local folder, a GitHub URL,
+# Turns what the user typed into a source: a GitHub URL, a local folder,
 # owner/repo[/path][@ref], or the id of a mod listed in registry.json.
 function Resolve-ModSpec([string]$Spec) {
     if ($Spec -match '^https?://github\.com/([^/]+)/([^/#?]+?)(?:\.git)?(?:/tree/([^/]+)(?:/(.+?))?)?/?$') {
@@ -483,19 +483,19 @@ function Resolve-ModSpec([string]$Spec) {
     if (Test-Path -LiteralPath $Spec -PathType Container) {
         return [ordered]@{ type = 'local'; path = (Get-FullPath $Spec) }
     }
-    if ($Spec -match '^\.|\\|^[A-Za-z]:') { throw "Dossier introuvable : $Spec" }
+    if ($Spec -match '^\.|\\|^[A-Za-z]:') { throw "Folder not found: $Spec" }
     if ($Spec -match '^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((?:/[^@]+)?)(?:@(.+))?$') {
         return [ordered]@{ type = 'github'; repo = "$($Matches[1])/$($Matches[2])"; path = ([string]$Matches[3]).Trim('/'); ref = [string]$Matches[4] }
     }
     $registry = $null
-    try { $registry = Get-Registry } catch { Write-Warn "Registre des mods inaccessible : $($_.Exception.Message)" }
+    try { $registry = Get-Registry } catch { Write-Warn "Mod registry unreachable: $($_.Exception.Message)" }
     if ($registry) {
         $entry = @($registry.mods) | Where-Object { $_.id -eq $Spec } | Select-Object -First 1
         if ($entry) {
             return [ordered]@{ type = 'github'; repo = [string]$entry.repo; path = [string]$entry.path; ref = [string]$entry.ref }
         }
     }
-    throw "Mod introuvable : « $Spec ». Essaie « eagle search $Spec »."
+    throw "Mod not found: ""$Spec"". Try ""eagle search $Spec""."
 }
 
 function Test-Official($Source) {
@@ -505,24 +505,24 @@ function Test-Official($Source) {
 # Returns the folder holding the mod's manifest.json, downloading it if needed.
 function Get-ModSourceDir($Source, [string]$WorkDir) {
     if ($Source.type -eq 'local') {
-        if (-not (Test-Path -LiteralPath $Source.path -PathType Container)) { throw "Dossier introuvable : $($Source.path)" }
+        if (-not (Test-Path -LiteralPath $Source.path -PathType Container)) { throw "Folder not found: $($Source.path)" }
         return $Source.path
     }
     $ref = $Source.ref
     if (-not $ref) { $ref = 'HEAD' }
     $zip = Join-Path $WorkDir 'mod.zip'
     $extracted = Join-Path $WorkDir 'src'
-    Write-Step "Téléchargement de $($Source.repo)..."
+    Write-Step "Downloading $($Source.repo)..."
     try {
         Invoke-Download "https://github.com/$($Source.repo)/archive/$ref.zip" $zip
     } catch {
-        throw "Impossible de télécharger github.com/$($Source.repo) ($ref) : le dépôt existe-t-il et est-il public ?"
+        throw "Could not download github.com/$($Source.repo) ($ref): does the repository exist and is it public?"
     }
     Expand-Archive -LiteralPath $zip -DestinationPath $extracted -Force
     $root = Get-ChildItem -LiteralPath $extracted -Directory | Select-Object -First 1
     if ($Source.path) {
         $dir = Join-Path $root.FullName $Source.path
-        if (-not (Test-Path -LiteralPath (Join-Path $dir 'manifest.json'))) { throw "Pas de manifest.json dans $($Source.repo)/$($Source.path)" }
+        if (-not (Test-Path -LiteralPath (Join-Path $dir 'manifest.json'))) { throw "No manifest.json in $($Source.repo)/$($Source.path)" }
         return $dir
     }
     if (Test-Path -LiteralPath (Join-Path $root.FullName 'manifest.json')) { return $root.FullName }
@@ -531,9 +531,9 @@ function Get-ModSourceDir($Source, [string]$WorkDir) {
     if ($found.Count -eq 1) { return $found[0].DirectoryName }
     if ($found.Count -gt 1) {
         $choices = $found | ForEach-Object { '    eagle install ' + $Source.repo + '/' + $_.DirectoryName.Substring($root.FullName.Length + 1).Replace('\', '/') }
-        throw ("Ce dépôt contient plusieurs mods, choisis-en un :`n" + ($choices -join "`n"))
+        throw ("This repository contains several mods, pick one:`n" + ($choices -join "`n"))
     }
-    throw "Aucun mod (manifest.json) trouvé dans $($Source.repo)."
+    throw "No mod (manifest.json) found in $($Source.repo)."
 }
 
 function Install-ModFrom([string]$Dir, $Source) {
@@ -550,10 +550,10 @@ function Install-ModFrom([string]$Dir, $Source) {
 }
 
 function Confirm-Trust($Manifest, $Source) {
-    Write-Warn "Un mod exécute du code dans Deezer, avec accès à ton compte."
-    Write-Warn "N'installe que des mods dont tu as confiance en l'auteur."
-    $answer = Read-Host "  Installer « $($Manifest.name) » depuis $(Format-Source $Source) ? [o/N]"
-    if ($answer -notmatch '^(o|oui|y|yes)$') { throw 'Installation annulée.' }
+    Write-Warn 'A mod runs code inside Deezer, with access to your Deezer account.'
+    Write-Warn 'Only install mods from authors you trust.'
+    $answer = Read-Host "  Install ""$($Manifest.name)"" from $(Format-Source $Source)? [y/N]"
+    if ($answer -notmatch '^(y|yes)$') { throw 'Installation cancelled.' }
 }
 
 function Set-ModEnabled([string]$Id, [bool]$Enabled) {
@@ -564,7 +564,7 @@ function Set-ModEnabled([string]$Id, [bool]$Enabled) {
 }
 
 function Invoke-Install([string[]]$Specs, [bool]$Yes) {
-    if ($Specs.Count -eq 0) { throw 'Usage : eagle install <mod | owner/repo[/chemin][@ref] | url | dossier>' }
+    if ($Specs.Count -eq 0) { throw 'Usage: eagle install <mod | owner/repo[/path][@ref] | url | folder>' }
     foreach ($spec in $Specs) {
         $source = Resolve-ModSpec $spec
         $work = New-TempDir
@@ -575,7 +575,7 @@ function Invoke-Install([string[]]$Specs, [bool]$Yes) {
             if (-not $Yes -and -not (Test-Official $source)) { Confirm-Trust $manifest $source }
             $manifest = Install-ModFrom $dir $source
             Set-ModEnabled $manifest.id $true
-            Write-Ok "$($manifest.name) $($manifest.version) installé ($($manifest.id))."
+            Write-Ok "Installed $($manifest.name) $($manifest.version) ($($manifest.id))."
         } finally {
             Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -584,24 +584,24 @@ function Invoke-Install([string[]]$Specs, [bool]$Yes) {
 }
 
 function Invoke-Remove([string[]]$Ids) {
-    if ($Ids.Count -eq 0) { throw 'Usage : eagle remove <id>' }
+    if ($Ids.Count -eq 0) { throw 'Usage: eagle remove <id>' }
     foreach ($id in $Ids) {
         $mod = Get-Mod $id
         Remove-ModFolder $mod.Dir
         $config = Get-Config
         $config.disabled = @($config.disabled | Where-Object { $_ -ne $id })
         Save-Config $config
-        Write-Ok "$($mod.Name) supprimé."
+        Write-Ok "Removed $($mod.Name)."
     }
     Write-Reload
 }
 
 function Invoke-Toggle([string[]]$Ids, [bool]$Enabled) {
-    if ($Ids.Count -eq 0) { throw 'Usage : eagle enable|disable <id>' }
+    if ($Ids.Count -eq 0) { throw 'Usage: eagle enable|disable <id>' }
     foreach ($id in $Ids) {
         $mod = Get-Mod $id
         Set-ModEnabled $id $Enabled
-        if ($Enabled) { Write-Ok "$($mod.Name) activé." } else { Write-Ok "$($mod.Name) désactivé." }
+        if ($Enabled) { Write-Ok "Enabled $($mod.Name)." } else { Write-Ok "Disabled $($mod.Name)." }
     }
     Write-Reload
 }
@@ -609,15 +609,15 @@ function Invoke-Toggle([string[]]$Ids, [bool]$Enabled) {
 function Invoke-List {
     $mods = @(Get-Mods)
     if ($mods.Count -eq 0) {
-        Write-Host '  Aucun mod installé. Cherche-en avec « eagle search ».'
+        Write-Host '  No mods installed. Find some with "eagle search".'
         return
     }
     $mods | ForEach-Object {
-        $state = 'activé'
-        if (-not $_.Enabled) { $state = 'désactivé' }
+        $state = 'enabled'
+        if (-not $_.Enabled) { $state = 'disabled' }
         $origin = Format-Source $_.Source
-        if ($_.Linked) { $origin = 'lien (dev)' }
-        [pscustomobject]@{ ID = $_.Id; Nom = $_.Name; Version = $_.Version; Etat = $state; Source = $origin }
+        if ($_.Linked) { $origin = 'link (dev)' }
+        [pscustomobject]@{ ID = $_.Id; Name = $_.Name; Version = $_.Version; State = $state; Source = $origin }
     } | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
 }
 
@@ -625,19 +625,19 @@ function Invoke-Update([string[]]$Ids) {
     $mods = @(Get-Mods)
     if ($Ids.Count -gt 0) { $mods = @($Ids | ForEach-Object { Get-Mod $_ }) }
     foreach ($mod in $mods) {
-        if ($mod.Linked) { Write-Step "$($mod.Id) : lien de développement, ignoré."; continue }
-        if (-not $mod.Source) { Write-Step "$($mod.Id) : source inconnue, ignoré."; continue }
+        if ($mod.Linked) { Write-Step "$($mod.Id): development link, skipped."; continue }
+        if (-not $mod.Source) { Write-Step "$($mod.Id): unknown source, skipped."; continue }
         $work = New-TempDir
         try {
             $dir = Get-ModSourceDir $mod.Source $work
             $manifest = Read-Manifest $dir
             Assert-Manifest $manifest $dir
-            if ($manifest.id -ne $mod.Id) { throw "la source contient maintenant le mod « $($manifest.id) »" }
+            if ($manifest.id -ne $mod.Id) { throw "the source now contains the mod ""$($manifest.id)""" }
             [void](Install-ModFrom $dir $mod.Source)
-            if ($manifest.version -eq $mod.Version) { Write-Ok "$($mod.Name) est à jour ($($mod.Version))." }
-            else { Write-Ok "$($mod.Name) : $($mod.Version) -> $($manifest.version)" }
+            if ($manifest.version -eq $mod.Version) { Write-Ok "$($mod.Name) is up to date ($($mod.Version))." }
+            else { Write-Ok "$($mod.Name): $($mod.Version) -> $($manifest.version)" }
         } catch {
-            Write-Warn "$($mod.Id) : $($_.Exception.Message)"
+            Write-Warn "$($mod.Id): $($_.Exception.Message)"
         } finally {
             Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -651,11 +651,11 @@ function Invoke-Search([string]$Query) {
         foreach ($entry in @((Get-Registry).mods)) {
             $haystack = "$($entry.id) $($entry.name) $($entry.description)"
             if (-not $Query -or $haystack -like "*$Query*") {
-                $rows += [pscustomobject]@{ Installer = $entry.id; Description = $entry.description; Etoiles = '' }
+                $rows += [pscustomobject]@{ Install = $entry.id; Description = $entry.description; Stars = '' }
             }
         }
     } catch {
-        Write-Warn "Registre des mods inaccessible : $($_.Exception.Message)"
+        Write-Warn "Mod registry unreachable: $($_.Exception.Message)"
     }
     try {
         $q = "topic:$script:Topic"
@@ -664,17 +664,17 @@ function Invoke-Search([string]$Query) {
         $result = Invoke-RestMethod -Uri $url -UseBasicParsing -Headers @{ 'User-Agent' = 'Deezer-Eagle'; 'Accept' = 'application/vnd.github+json' }
         foreach ($item in @($result.items)) {
             if ($item.full_name -eq $script:Repo) { continue }
-            $rows += [pscustomobject]@{ Installer = $item.full_name; Description = $item.description; Etoiles = $item.stargazers_count }
+            $rows += [pscustomobject]@{ Install = $item.full_name; Description = $item.description; Stars = $item.stargazers_count }
         }
     } catch {
-        Write-Warn "Recherche GitHub indisponible : $($_.Exception.Message)"
+        Write-Warn "GitHub search unavailable: $($_.Exception.Message)"
     }
     if ($rows.Count -eq 0) {
-        Write-Host '  Aucun mod trouvé.'
+        Write-Host '  No mods found.'
         return
     }
     $rows | Format-Table -AutoSize -Wrap | Out-String -Width 200 | Write-Host
-    Write-Host '  Installe avec : eagle install <valeur de la colonne Installer>' -ForegroundColor DarkGray
+    Write-Host '  Install with: eagle install <value of the Install column>' -ForegroundColor DarkGray
 }
 
 function New-Link([string]$Link, [string]$Target) {
@@ -687,7 +687,7 @@ function New-Link([string]$Link, [string]$Target) {
 }
 
 function Invoke-Link([string]$Path) {
-    if (-not $Path) { throw 'Usage : eagle link <dossier du mod>' }
+    if (-not $Path) { throw 'Usage: eagle link <mod folder>' }
     $dir = Get-FullPath $Path
     $manifest = Read-Manifest $dir
     Assert-Manifest $manifest $dir
@@ -696,18 +696,18 @@ function Invoke-Link([string]$Path) {
     if (Test-Path -LiteralPath $target) { Remove-ModFolder $target }
     New-Link $target $dir
     Set-ModEnabled $manifest.id $true
-    Write-Ok "$($manifest.name) est lié depuis $dir : tes modifications s'appliquent à chaque rechargement."
+    Write-Ok "$($manifest.name) is linked from $($dir): your edits apply on every reload."
     Write-Reload
 }
 
 function Invoke-New([string]$Id) {
     if (-not $Id -or $Id -cnotmatch '^[a-z0-9][a-z0-9_-]{0,63}$') {
-        throw 'Usage : eagle new <id>   (id en minuscules : lettres, chiffres, - ou _)'
+        throw 'Usage: eagle new <id>   (lowercase id: letters, digits, - or _)'
     }
     $dir = Join-Path (Get-Location).ProviderPath $Id
-    if (Test-Path -LiteralPath $dir) { throw "Le dossier $dir existe déjà." }
+    if (Test-Path -LiteralPath $dir) { throw "The folder $dir already exists." }
     $template = Join-Path $script:EagleHome 'template'
-    if (-not (Test-Path -LiteralPath $template)) { throw "Modèle introuvable ($template) : réinstalle Deezer Eagle." }
+    if (-not (Test-Path -LiteralPath $template)) { throw "Template not found ($template): reinstall Deezer Eagle." }
     $author = $env:USERNAME
     if (-not $author) { $author = $env:USER }
     $title = (Get-Culture).TextInfo.ToTitleCase(($Id -replace '[-_]', ' '))
@@ -717,14 +717,14 @@ function Invoke-New([string]$Id) {
         $text = $text.Replace('{{id}}', $Id).Replace('{{name}}', $title).Replace('{{author}}', [string]$author)
         Write-TextFile (Join-Path $dir $file.Name) $text
     }
-    Write-Ok "Mod créé dans $dir"
+    Write-Ok "Mod created in $dir"
     Invoke-Link $dir
     Write-Host ''
-    Write-Host '  Ensuite :' -ForegroundColor White
-    Write-Host "    1. Modifie $Id\mod.js et $Id\style.css"
-    Write-Host '    2. Recharge Deezer avec Ctrl+Shift+R pour voir le résultat'
-    Write-Host '    3. Active la console de debug : eagle config devtools on (puis Ctrl+Shift+I dans Deezer)'
-    Write-Host "    4. Publie le dossier sur GitHub avec le topic « $script:Topic »"
+    Write-Host '  Next steps:' -ForegroundColor White
+    Write-Host "    1. Edit $Id\mod.js and $Id\style.css"
+    Write-Host '    2. Reload Deezer with Ctrl+Shift+R to see the result'
+    Write-Host '    3. Turn on the dev console: eagle config devtools on (then Ctrl+Shift+I in Deezer)'
+    Write-Host "    4. Publish the folder on GitHub with the ""$script:Topic"" topic"
 }
 
 function Invoke-Config([string[]]$Values) {
@@ -737,9 +737,9 @@ function Invoke-Config([string[]]$Values) {
     }
     switch ($Values[0]) {
         'devtools' {
-            $config.devtools = @('on', 'true', '1', 'oui', 'yes') -contains [string]$Values[1]
+            $config.devtools = @('on', 'true', '1', 'yes') -contains [string]$Values[1]
             Save-Config $config
-            Write-Ok "devtools = $($config.devtools) (Ctrl+Shift+I dans Deezer, après redémarrage)."
+            Write-Ok "devtools = $($config.devtools) (Ctrl+Shift+I in Deezer, after a restart)."
         }
         'deezerPath' {
             if ($Values.Count -lt 2 -or -not $Values[1]) { $config.deezerPath = '' }
@@ -747,12 +747,12 @@ function Invoke-Config([string[]]$Values) {
             Save-Config $config
             Write-Ok "deezerPath = $($config.deezerPath)"
         }
-        default { throw "Option inconnue : $($Values[0]) (devtools, deezerPath)" }
+        default { throw "Unknown option: $($Values[0]) (devtools, deezerPath)" }
     }
 }
 
 function Invoke-Css {
-    if (-not (Test-Path -LiteralPath $script:UserCss)) { Write-TextFile $script:UserCss "/* Ton CSS perso, appliqué après tous les mods. */`n" }
+    if (-not (Test-Path -LiteralPath $script:UserCss)) { Write-TextFile $script:UserCss "/* Your own CSS, applied after every mod. */`n" }
     Write-Host "  $script:UserCss"
     if ($script:OnWindows) { Start-Process -FilePath 'notepad.exe' -ArgumentList "`"$script:UserCss`"" }
     Write-Reload
@@ -760,28 +760,28 @@ function Invoke-Css {
 
 function Invoke-Logs {
     $log = Join-Path $script:EagleHome 'logs/main.log'
-    if (-not (Test-Path -LiteralPath $log)) { Write-Host '  Pas encore de log : lance Deezer une fois patché.'; return }
+    if (-not (Test-Path -LiteralPath $log)) { Write-Host '  No log yet: start Deezer once it is patched.'; return }
     Get-Content -LiteralPath $log -Tail 100 | Write-Host
 }
 
 function Invoke-Status {
     Write-Host "  Deezer Eagle $(Get-EagleVersion)" -ForegroundColor Magenta
-    Write-Host "  Dossier : $script:EagleHome"
+    Write-Host "  Folder : $script:EagleHome"
     $dir = $null
     try { $dir = Find-Deezer } catch { Write-Warn $_.Exception.Message }
     if (-not $dir) {
-        Write-Host '  Deezer  : introuvable'
+        Write-Host '  Deezer : not found'
     } else {
         $paths = Get-PatchPaths $dir
-        $state = 'non patché (eagle apply)'
-        if (Test-EagleStub $paths.Asar) { $state = 'patché' }
-        elseif (Test-Path -LiteralPath $paths.Original) { $state = 'Deezer a été mis à jour, relance « eagle apply »' }
-        Write-Host "  Deezer  : $dir"
-        Write-Host "  Patch   : $state"
+        $state = 'not patched (run "eagle apply")'
+        if (Test-EagleStub $paths.Asar) { $state = 'patched' }
+        elseif (Test-Path -LiteralPath $paths.Original) { $state = 'Deezer was updated, run "eagle apply" again' }
+        Write-Host "  Deezer : $dir"
+        Write-Host "  Patch  : $state"
     }
     $mods = @(Get-Mods)
     $active = @($mods | Where-Object { $_.Enabled }).Count
-    Write-Host "  Mods    : $($mods.Count) installé(s), $active actif(s)"
+    Write-Host "  Mods   : $($mods.Count) installed, $active enabled"
 }
 
 function Invoke-Restart {
@@ -792,7 +792,7 @@ function Invoke-Restart {
 
 function Invoke-Upgrade {
     $url = "https://raw.githubusercontent.com/$script:Repo/$script:Branch/install.ps1"
-    Write-Step 'Mise à jour de Deezer Eagle...'
+    Write-Step 'Updating Deezer Eagle...'
     $installer = (Invoke-WebRequest -Uri $url -UseBasicParsing -Headers @{ 'User-Agent' = 'Deezer-Eagle' }).Content
     Invoke-Expression $installer
 }
@@ -831,7 +831,7 @@ function Copy-Folder([string]$From, [string]$To) {
 
 function Invoke-Setup([string]$SourceDir, [bool]$NoApply) {
     if (-not $SourceDir -or -not (Test-Path -LiteralPath (Join-Path $SourceDir 'src/core/main.js'))) {
-        throw 'Usage interne : eagle setup <dossier des sources de Deezer Eagle>'
+        throw 'Internal usage: eagle setup <Deezer Eagle source folder>'
     }
     $SourceDir = Get-FullPath $SourceDir
     $firstInstall = -not (Test-Path -LiteralPath $script:ConfigFile)
@@ -841,7 +841,7 @@ function Invoke-Setup([string]$SourceDir, [bool]$NoApply) {
     Copy-Folder (Join-Path $SourceDir 'src/template') (Join-Path $script:EagleHome 'template')
     Copy-Item -LiteralPath (Join-Path $SourceDir 'src/cli/eagle.ps1') -Destination (Join-Path $script:EagleHome 'cli/eagle.ps1') -Force
     Copy-Item -LiteralPath (Join-Path $SourceDir 'VERSION') -Destination (Join-Path $script:EagleHome 'VERSION') -Force
-    Write-Ok "Deezer Eagle $(Get-EagleVersion) installé dans $script:EagleHome"
+    Write-Ok "Deezer Eagle $(Get-EagleVersion) installed in $script:EagleHome"
 
     # `exit /b` sits on the same line so cmd never re-reads a file `eagle uninstall` deleted.
     $shim = "@powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0..\cli\eagle.ps1`" %* & exit /b`r`n"
@@ -851,13 +851,13 @@ function Invoke-Setup([string]$SourceDir, [bool]$NoApply) {
         $entries = Get-UserPathEntries
         if ($entries -notcontains $bin) {
             Set-UserPathEntries ($entries + $bin)
-            Write-Ok 'Commande « eagle » ajoutée au PATH.'
+            Write-Ok 'Added the "eagle" command to your PATH.'
         }
     }
 
     if ($firstInstall) {
         Save-Config (Get-Config)
-        Write-TextFile $script:UserCss "/* Ton CSS perso, appliqué après tous les mods. Ouvre-le avec : eagle css */`n"
+        Write-TextFile $script:UserCss "/* Your own CSS, applied after every mod. Open it with: eagle css */`n"
     }
 
     # Built-in mods: installed on first install, refreshed on upgrade.
@@ -887,22 +887,22 @@ function Invoke-Setup([string]$SourceDir, [bool]$NoApply) {
             Invoke-Apply
         } catch {
             Write-Warn $_.Exception.Message
-            Write-Warn 'Lance « eagle apply » une fois Deezer installé.'
+            Write-Warn 'Run "eagle apply" once Deezer is installed.'
         }
     }
 
     Write-Host ''
-    Write-Host '  Deezer Eagle est prêt !' -ForegroundColor Magenta
-    Write-Host '    eagle list           mods installés'
-    Write-Host '    eagle search         trouver des mods'
-    Write-Host '    eagle help           toutes les commandes'
-    Write-Host '    Ctrl+Shift+E         panneau Eagle dans Deezer'
+    Write-Host '  Deezer Eagle is ready!' -ForegroundColor Magenta
+    Write-Host '    eagle list           installed mods'
+    Write-Host '    eagle search         find mods'
+    Write-Host '    eagle help           all commands'
+    Write-Host '    Ctrl+Shift+E         Eagle panel inside Deezer'
 }
 
 function Invoke-Uninstall([bool]$Yes) {
     if (-not $Yes) {
-        $answer = Read-Host '  Supprimer Deezer Eagle et tous ses mods ? [o/N]'
-        if ($answer -notmatch '^(o|oui|y|yes)$') { throw 'Désinstallation annulée.' }
+        $answer = Read-Host '  Remove Deezer Eagle and all its mods? [y/N]'
+        if ($answer -notmatch '^(y|yes)$') { throw 'Uninstall cancelled.' }
     }
     if (Find-Deezer) { Invoke-Restore }
     if ($script:OnWindows) {
@@ -914,7 +914,7 @@ function Invoke-Uninstall([bool]$Yes) {
         Get-ChildItem -LiteralPath $script:ModsDir -Directory -Force | Where-Object { Test-Linked $_.FullName } | ForEach-Object { Remove-ModFolder $_.FullName }
     }
     Remove-Item -LiteralPath $script:EagleHome -Recurse -Force
-    Write-Ok 'Deezer Eagle est désinstallé. Deezer est revenu à son état d''origine.'
+    Write-Ok 'Deezer Eagle is uninstalled and Deezer is back to its original state.'
 }
 
 # ---------------------------------------------------------------------------
@@ -922,36 +922,36 @@ function Invoke-Uninstall([bool]$Yes) {
 # ---------------------------------------------------------------------------
 
 function Show-Help {
-    Write-Host "  Deezer Eagle $(Get-EagleVersion) - mods pour Deezer Desktop" -ForegroundColor Magenta
+    Write-Host "  Deezer Eagle $(Get-EagleVersion) - mods for Deezer Desktop" -ForegroundColor Magenta
     Write-Host @'
 
   Deezer
-    eagle apply                  patche Deezer (à relancer après une mise à jour de Deezer)
-    eagle restore                remet Deezer d'origine
-    eagle status                 état de l'installation
-    eagle restart                redémarre Deezer
+    eagle apply                  patch Deezer (run it again after a Deezer update)
+    eagle restore                put Deezer back to its original state
+    eagle status                 installation status
+    eagle restart                restart Deezer
 
   Mods
-    eagle list                   mods installés
-    eagle search [mot]           cherche des mods (registre + GitHub)
-    eagle install <mod>          installe : id du registre, owner/repo[/chemin][@ref],
-                                 URL GitHub ou dossier local   (-y : sans confirmation)
-    eagle remove <id>            supprime un mod
-    eagle enable <id>            active un mod
-    eagle disable <id>           désactive un mod
-    eagle update [id]            met à jour les mods depuis leur source
+    eagle list                   installed mods
+    eagle search [term]          find mods (registry + GitHub)
+    eagle install <mod>          install: registry id, owner/repo[/path][@ref],
+                                 GitHub URL or local folder   (-y: no confirmation)
+    eagle remove <id>            remove a mod
+    eagle enable <id>            enable a mod
+    eagle disable <id>           disable a mod
+    eagle update [id]            update mods from their source
 
-  Créer des mods
-    eagle new <id>               crée un mod à partir du modèle et le lie
-    eagle link <dossier>         utilise un mod en développement depuis son dossier
-    eagle config devtools on     active la console (Ctrl+Shift+I dans Deezer)
-    eagle css                    ouvre ton CSS perso (user.css)
-    eagle logs                   journal du chargeur
+  Making mods
+    eagle new <id>               create a mod from the template and link it
+    eagle link <folder>          use a mod in development from its folder
+    eagle config devtools on     enable the dev console (Ctrl+Shift+I in Deezer)
+    eagle css                    open your own CSS (user.css)
+    eagle logs                   loader log
 
   Deezer Eagle
-    eagle config [clé valeur]    options : devtools, deezerPath
-    eagle upgrade                met à jour Deezer Eagle
-    eagle uninstall              désinstalle tout
+    eagle config [key value]     options: devtools, deezerPath
+    eagle upgrade                update Deezer Eagle
+    eagle uninstall              remove everything
 '@
 }
 
@@ -987,7 +987,7 @@ function Invoke-Eagle([string[]]$Argv) {
         'setup' { Invoke-Setup $values[0] ($flags -contains '--no-apply') }
         'version' { Write-Host (Get-EagleVersion) }
         { $_ -in @('help', '-h', '--help', '/?') } { Show-Help }
-        default { throw "Commande inconnue : « $command ». Tape « eagle help »." }
+        default { throw "Unknown command: ""$command"". Type ""eagle help""." }
     }
 }
 

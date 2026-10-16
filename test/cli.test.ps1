@@ -36,7 +36,7 @@ function Assert-True($Condition, [string]$Message) {
 }
 
 function Assert-Equal($Expected, $Actual, [string]$Message) {
-    if ($Expected -ne $Actual) { throw "$Message : attendu « $Expected », obtenu « $Actual »" }
+    if ($Expected -ne $Actual) { throw "$Message : expected '$Expected', got '$Actual'" }
 }
 
 function Get-Bytes([string]$Text) { return , $script:Utf8.GetBytes($Text) }
@@ -150,7 +150,7 @@ Check 'apply refuses when asar integrity validation is enabled' {
     $resources = Join-Path $deezer 'resources'
     $hash = Get-Hash (Join-Path $resources 'app.asar')
     $failed = $false
-    try { Invoke-Apply } catch { $failed = $_.Exception.Message -like "*intégrité*" }
+    try { Invoke-Apply } catch { $failed = $_.Exception.Message -like "*integrity*" }
     Assert-True $failed 'refused with an explanation'
     Assert-Equal $hash (Get-Hash (Join-Path $resources 'app.asar')) 'nothing modified'
     Assert-True (-not (Test-Path (Join-Path $resources '_app.asar'))) 'no backup created'
@@ -178,7 +178,7 @@ Check 'Resolve-ModSpec understands every source format' {
     try { [void](Resolve-ModSpec 'definitely-not-a-mod') } catch { $failed = $true }
     Assert-True $failed 'unknown id throws'
     $failed = $false
-    try { [void](Resolve-ModSpec '.\missing-folder') } catch { $failed = $_.Exception.Message -like 'Dossier introuvable*' }
+    try { [void](Resolve-ModSpec '.\missing-folder') } catch { $failed = $_.Exception.Message -like 'Folder not found*' }
     Assert-True $failed 'missing local folder is not sent to GitHub'
 }
 
@@ -265,6 +265,6 @@ Check 'setup installs the CLI, default mods and the shim' {
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
-if ($script:failures -eq 0) { Write-Host 'Tous les tests passent.' -ForegroundColor Green }
-else { Write-Host "$($script:failures) test(s) en échec." -ForegroundColor Red }
+if ($script:failures -eq 0) { Write-Host 'All tests passed.' -ForegroundColor Green }
+else { Write-Host "$($script:failures) test(s) failed." -ForegroundColor Red }
 exit $script:failures

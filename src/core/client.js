@@ -12,7 +12,7 @@
   if (window.Eagle) return;
 
   const PREFIX = '[Deezer Eagle]';
-  const STATUS_LABELS = { loading: 'chargement', ok: 'actif', error: 'erreur', disabled: 'désactivé' };
+  const STATUS_LABELS = { loading: 'loading', ok: 'active', error: 'error', disabled: 'disabled' };
 
   const mods = new Map();
   for (const info of boot.mods) {
@@ -83,7 +83,7 @@
       if (timeout > 0) {
         timer = setTimeout(() => {
           observer.disconnect();
-          reject(new Error(`Eagle.waitFor("${selector}") : délai dépassé`));
+          reject(new Error(`Eagle.waitFor("${selector}") timed out`));
         }, timeout);
       }
     });
@@ -209,13 +209,13 @@
 
     const header = element('div', 'header');
     const close = element('button', 'close', '×');
-    close.title = 'Fermer';
+    close.title = 'Close';
     close.addEventListener('click', togglePanel);
     header.append(element('strong', '', 'Deezer Eagle'), element('span', 'muted', `v${boot.version}`), close);
 
     const list = element('ul', 'mods');
     if (mods.size === 0) {
-      list.append(element('li', 'empty muted', 'Aucun mod installé. Tape « eagle search » dans PowerShell pour en trouver.'));
+      list.append(element('li', 'empty muted', 'No mods installed. Type "eagle search" in PowerShell to find some.'));
     }
     for (const info of mods.values()) {
       const item = element('li', 'mod');
@@ -232,10 +232,10 @@
     }
 
     const footer = element('div', 'footer');
-    const reload = element('button', '', 'Recharger');
+    const reload = element('button', '', 'Reload');
     reload.title = 'Ctrl+Shift+R';
     reload.addEventListener('click', () => location.reload());
-    footer.append(element('span', 'muted', 'Gère tes mods avec « eagle » dans PowerShell.'), reload);
+    footer.append(element('span', 'muted', 'Manage your mods with "eagle" in PowerShell.'), reload);
 
     panel.append(header, list, footer);
     return panel;
@@ -279,8 +279,8 @@
       info.status = 'error';
       info.error = message;
     }
-    console.error(PREFIX, `le mod "${id}" a planté :`, err);
-    notify(`Le mod « ${info ? info.name : id} » a planté. Ctrl+Shift+E pour les détails.`, { timeout: 6000 });
+    console.error(PREFIX, `mod "${id}" crashed:`, err);
+    notify(`The "${info ? info.name : id}" mod crashed. Press Ctrl+Shift+E for details.`, { timeout: 6000 });
   }
 
   function createContext(info) {
@@ -330,5 +330,5 @@
   Object.defineProperty(window, 'Eagle', { value: Object.freeze(api), enumerable: false });
 
   const active = boot.mods.filter((info) => info.enabled).length;
-  console.log(PREFIX, `v${boot.version} — ${active} mod(s) actif(s). Ctrl+Shift+E pour ouvrir le panneau.`);
+  console.log(PREFIX, `v${boot.version}, ${active} active mod(s). Press Ctrl+Shift+E to open the panel.`);
 })();

@@ -1,6 +1,6 @@
-/* Emplacements publicitaires standard (Google Publisher Tag, AdSense). Les
-   requêtes vers les régies sont déjà bloquées par manifest.json : ceci masque
-   les cadres vides qui resteraient à l'écran. */
+/* Standard ad slots (Google Publisher Tag, AdSense). Requests to ad networks
+   are already blocked by manifest.json: this hides the empty frames that
+   would otherwise stay on screen. */
 ins.adsbygoogle,
 [id^="div-gpt-ad"],
 iframe[id^="google_ads_iframe"],

@@ -1,140 +1,138 @@
 # Deezer Eagle 🦅
 
-**Des mods pour Deezer Desktop**, à la manière de [Spicetify](https://spicetify.app) pour Spotify :
-un adblock, des thèmes, des petites fonctionnalités… et n'importe qui peut créer et partager
-ses propres mods sur GitHub.
+**Mods for Deezer Desktop**, in the spirit of [Spicetify](https://spicetify.app) for Spotify:
+an adblock, themes, small features... and anyone can build and share their own mods on GitHub.
 
-## Installation
+## Install
 
-Ouvre **PowerShell** (pas besoin d'être administrateur) et colle :
+Open **PowerShell** (no admin rights needed) and paste:
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/Snoxy008/Deezer-Eagle/main/install.ps1 | iex
 ```
 
-C'est tout. L'installeur :
+That's it. The installer:
 
-1. installe Deezer Eagle dans `%LOCALAPPDATA%\DeezerEagle` et ajoute la commande `eagle` ;
-2. installe les mods de base (**AdBlock** et **No Tracking**) ;
-3. patche Deezer Desktop (il est fermé puis relancé s'il tournait).
+1. installs Deezer Eagle in `%LOCALAPPDATA%\DeezerEagle` and adds the `eagle` command;
+2. installs the base mods (**AdBlock** and **No Tracking**);
+3. patches Deezer Desktop (it is closed and restarted if it was running).
 
-> Il faut la version classique de Deezer Desktop, téléchargée sur
-> [deezer.com/download](https://www.deezer.com/fr/download). La version Microsoft Store
-> est protégée en écriture par Windows et ne peut pas être modifiée.
+> You need the regular Deezer Desktop app from [deezer.com/download](https://www.deezer.com/download).
+> The Microsoft Store version is write-protected by Windows and cannot be modified.
 
-Dans Deezer, **Ctrl+Shift+E** ouvre le panneau Eagle avec la liste des mods actifs.
+Inside Deezer, **Ctrl+Shift+E** opens the Eagle panel with the list of active mods.
 
-## Utilisation
+## Usage
 
 ```powershell
-eagle list                    # mods installés
-eagle search                  # trouver des mods (registre officiel + GitHub)
-eagle install copy-link       # installer un mod du registre
-eagle install pseudo/son-mod  # ... ou directement depuis n'importe quel dépôt GitHub
-eagle disable adblock         # désactiver un mod (enable pour le réactiver)
-eagle remove copy-link        # supprimer un mod
-eagle update                  # mettre à jour les mods
-eagle help                    # toutes les commandes
+eagle list                         # installed mods
+eagle search                       # find mods (official registry + GitHub)
+eagle install copy-link            # install a mod from the registry
+eagle install someone/their-mod    # ... or straight from any GitHub repository
+eagle disable adblock              # disable a mod (enable turns it back on)
+eagle remove copy-link             # remove a mod
+eagle update                       # update mods
+eagle help                         # every command
 ```
 
-Les changements de mods s'appliquent au rechargement de Deezer : **Ctrl+Shift+R**.
+Mod changes apply when Deezer reloads: **Ctrl+Shift+R**.
 
-### Après une mise à jour de Deezer
+### After a Deezer update
 
-Quand Deezer se met à jour, il remplace ses fichiers et les mods disparaissent. Relance simplement :
+When Deezer updates itself, it replaces its files and the mods are gone. Just run:
 
 ```powershell
 eagle apply
 ```
 
-(`eagle status` te dit si c'est nécessaire.)
+(`eagle status` tells you when this is needed.)
 
-### Formats acceptés par `eagle install`
+### What `eagle install` accepts
 
-| Tu tapes | Ce qui est installé |
+| You type | What gets installed |
 | --- | --- |
-| `adblock` | le mod `adblock` du [registre](registry.json) |
-| `pseudo/depot` | le mod à la racine du dépôt GitHub `pseudo/depot` |
-| `pseudo/depot/themes/sombre` | le mod du dossier `themes/sombre` de ce dépôt |
-| `pseudo/depot@v1.2` | une branche, un tag ou un commit précis |
-| `https://github.com/pseudo/depot/tree/main/themes/sombre` | une URL GitHub copiée depuis le navigateur |
-| `C:\mes-mods\mon-mod` | un dossier local |
+| `adblock` | the `adblock` mod from the [registry](registry.json) |
+| `someone/repo` | the mod at the root of the `someone/repo` GitHub repository |
+| `someone/repo/themes/dark` | the mod in the `themes/dark` folder of that repository |
+| `someone/repo@v1.2` | a specific branch, tag or commit |
+| `https://github.com/someone/repo/tree/main/themes/dark` | a GitHub URL copied from the browser |
+| `C:\my-mods\my-mod` | a local folder |
 
-Un mod qui ne vient pas de ce dépôt demande une confirmation avant l'installation (`-y` pour la passer).
+A mod that does not come from this repository asks for confirmation before installing (`-y` skips it).
 
-## Mods inclus
+## Included mods
 
-| Mod | Description | Installé par défaut |
+| Mod | Description | Installed by default |
 | --- | --- | --- |
-| [`adblock`](mods/adblock) | Bloque les régies publicitaires et masque les emplacements de pub | oui |
-| [`no-tracking`](mods/no-tracking) | Bloque les outils de mesure d'audience et de télémétrie tiers | oui |
-| [`copy-link`](mods/copy-link) | Ctrl+Shift+L copie le lien de la page ouverte | non |
+| [`adblock`](mods/adblock) | Blocks ad networks and hides ad slots | yes |
+| [`no-tracking`](mods/no-tracking) | Blocks third-party analytics and telemetry | yes |
+| [`copy-link`](mods/copy-link) | Ctrl+Shift+L copies the link of the open page | no |
 
-## Créer un mod
+## Making a mod
 
 ```powershell
-eagle new mon-mod     # crée le dossier .\mon-mod à partir du modèle, déjà branché sur Deezer
+eagle new my-mod     # creates .\my-mod from the template, already hooked into Deezer
 ```
 
-Un mod, c'est un dossier avec un `manifest.json` et, au choix, du JavaScript, du CSS et des
-règles de blocage réseau. Modifie les fichiers, appuie sur Ctrl+Shift+R dans Deezer, et c'est en
-place. Pour inspecter la page : `eagle config devtools on`, puis Ctrl+Shift+I dans Deezer.
+A mod is a folder with a `manifest.json` and, as needed, JavaScript, CSS and network block rules.
+Edit the files, press Ctrl+Shift+R in Deezer, and your changes are live. To inspect the page:
+`eagle config devtools on`, then Ctrl+Shift+I in Deezer.
 
-Pour le partager, publie le dossier sur GitHub et ajoute le **topic `deezer-eagle-mod`** au dépôt :
-il apparaît alors dans `eagle search` pour tout le monde. Tu peux aussi proposer une PR qui
-l'ajoute à [`registry.json`](registry.json) pour qu'il s'installe avec son simple nom.
+To share it, publish the folder on GitHub and add the **`deezer-eagle-mod` topic** to the
+repository: it then shows up in `eagle search` for everyone. You can also open a PR that adds it
+to [`registry.json`](registry.json) so it installs by its plain name.
 
-👉 Le guide complet : **[docs/creer-un-mod.md](docs/creer-un-mod.md)**
+👉 Full guide: **[docs/creating-mods.md](docs/creating-mods.md)**
 
-## Comment ça marche
+## How it works
 
-Deezer Desktop est une application [Electron](https://www.electronjs.org/) qui affiche le site
-deezer.com. `eagle apply` renomme l'archive de l'application (`resources\app.asar` →
-`resources\_app.asar`) et la remplace par un petit chargeur qui :
+Deezer Desktop is an [Electron](https://www.electronjs.org/) app that displays the deezer.com
+website. `eagle apply` renames the app archive (`resources\app.asar` → `resources\_app.asar`)
+and replaces it with a small loader that:
 
-- démarre le cœur de Deezer Eagle, puis l'application Deezer d'origine, sans rien y modifier
-  (même nom, même dossier de données : tu restes connecté) ;
-- injecte l'API `Eagle` et le code des mods activés dans la page de Deezer ;
-- bloque les requêtes réseau listées par les mods (c'est comme ça que fonctionne l'adblock).
+- starts the Deezer Eagle core, then the original Deezer app without modifying it
+  (same name, same data folder: you stay logged in);
+- injects the `Eagle` API and the code of enabled mods into Deezer's page;
+- blocks the network requests listed by mods (this is how the adblock works).
 
-Si quelque chose ne va pas, `eagle restore` remet l'archive d'origine en place à l'octet près.
-Si le dossier de Deezer Eagle disparaît, Deezer démarre normalement sans mods. Pour lancer
-Deezer une fois sans aucun mod : définis la variable d'environnement `DEEZER_EAGLE_DISABLE=1`.
+If anything goes wrong, `eagle restore` puts the original archive back, byte for byte. If the
+Deezer Eagle folder disappears, Deezer starts normally without mods. To start Deezer once
+without any mod, set the `DEEZER_EAGLE_DISABLE=1` environment variable.
 
-### Sécurité
+### Security
 
-- Le code d'un mod s'exécute **dans la page de Deezer**, avec accès à ton compte Deezer :
-  n'installe que des mods dont tu fais confiance à l'auteur.
-- Les mods n'ont **pas** accès à ton ordinateur : ils ne s'exécutent jamais dans le processus
-  principal d'Electron et ne peuvent lire que les fichiers de leur propre dossier.
-- Si une future version de Deezer active la vérification d'intégrité d'Electron, `eagle apply`
-  refuse de patcher plutôt que de casser Deezer.
+- A mod's code runs **inside Deezer's page**, with access to your Deezer account: only install
+  mods from authors you trust.
+- Mods have **no** access to your computer: they never run in Electron's main process and can
+  only read files from their own folder.
+- If a future Deezer version turns on Electron's integrity check, `eagle apply` refuses to patch
+  rather than break Deezer.
 
-## Désinstaller
+## Uninstall
 
 ```powershell
 eagle uninstall
 ```
 
-Deezer retrouve son état d'origine et tout est supprimé.
+Deezer goes back to its original state and everything is removed.
 
-## Développement
+## Development
 
 ```powershell
-npm test            # cœur (Node)
-npm run test:cli    # CLI PowerShell (pwsh ou powershell)
-npm run test:e2e    # bout en bout : un faux Deezer sous Electron, patché par la vraie CLI
+npm test            # core (Node)
+npm run test:cli    # PowerShell CLI (pwsh or powershell)
+npm run test:e2e    # end to end: a fake Deezer under Electron, patched by the real CLI
 ```
 
-| Dossier | Contenu |
+| Path | Contents |
 | --- | --- |
-| `install.ps1` | installeur en une ligne |
-| `src/cli/eagle.ps1` | la commande `eagle` |
-| `src/core/stub/index.js` | le chargeur placé dans `app.asar` |
-| `src/core/main.js`, `lib.js` | cœur côté processus principal : lecture des mods, injection, blocage réseau |
-| `src/core/client.js` | API `Eagle` et panneau, injectés dans la page |
-| `src/template/` | modèle utilisé par `eagle new` |
-| `mods/` | mods officiels |
-| `registry.json` | registre des mods installables par leur nom |
+| `install.ps1` | one-line installer |
+| `src/cli/eagle.ps1` | the `eagle` command |
+| `src/core/stub/index.js` | the loader placed in `app.asar` |
+| `src/core/main.js`, `lib.js` | main-process core: reads mods, injects them, blocks requests |
+| `src/core/client.js` | `Eagle` API and panel, injected into the page |
+| `src/template/` | template used by `eagle new` |
+| `mods/` | official mods |
+| `registry.json` | registry of mods installable by name |
 
-*Deezer Eagle n'est ni affilié à Deezer ni approuvé par Deezer.*
+*Deezer Eagle is not affiliated with or endorsed by Deezer.*

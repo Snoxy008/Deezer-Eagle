@@ -2,7 +2,7 @@
   "id": "adblock",
   "name": "AdBlock",
   "version": "1.0.0",
-  "description": "Bloque les régies publicitaires et masque les emplacements de pub.",
+  "description": "Blocks ad networks and hides ad slots.",
   "author": "Snoxy008",
   "styles": ["style.css"],
   "network": {

@@ -2,7 +2,7 @@
   "id": "no-tracking",
   "name": "No Tracking",
   "version": "1.0.0",
-  "description": "Bloque les outils de mesure d'audience et de télémétrie tiers.",
+  "description": "Blocks third-party analytics and telemetry.",
   "author": "Snoxy008",
   "network": {
     "block": [

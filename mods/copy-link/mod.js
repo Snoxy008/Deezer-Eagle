@@ -1,5 +1,5 @@
-// Ctrl+Shift+L : copie le lien public de la page ouverte dans Deezer.
-// Petit mod volontairement simple, à lire comme exemple de l'API Eagle.
+// Ctrl+Shift+L: copies the public link of the page open in Deezer.
+// Deliberately small, meant to be read as an example of the Eagle API.
 
 function copy(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -8,7 +8,7 @@ function copy(text) {
   return Promise.resolve(copyWithSelection(text));
 }
 
-// Repli si l'API presse-papiers est refusée par l'application.
+// Fallback for when the app denies the Clipboard API.
 function copyWithSelection(text) {
   const field = document.createElement('textarea');
   field.value = text;
@@ -29,7 +29,7 @@ window.addEventListener('keydown', (event) => {
   copy(url.href).then(() => {
     const count = mod.storage.get('copies', 0) + 1;
     mod.storage.set('copies', count);
-    Eagle.notify(`Lien copié : ${url.href}`);
-    mod.log(`lien copié (${count} fois depuis l'installation)`);
+    Eagle.notify(`Link copied: ${url.href}`);
+    mod.log(`link copied (${count} times since install)`);
   });
 });

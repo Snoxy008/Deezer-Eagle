@@ -92,8 +92,8 @@ async function main() {
   assert.equal(page.navigated, '/fr/album/1', 'onNavigate fires on pushState');
   assert.equal(page.probeColor, 'rgb(1, 2, 3)', 'mod CSS applied despite the CSP');
   assert.equal(page.probeBackground, 'rgb(4, 5, 6)', 'user.css applied');
-  assert.match(page.panel, /E2E Mod.*actif/s, 'Ctrl+Shift+E panel lists mods');
-  assert.match(page.panel, /E2E Broken.*erreur.*SyntaxError.*ligne 1/s, 'panel shows why the broken mod failed');
+  assert.match(page.panel, /E2E Mod.*active/s, 'Ctrl+Shift+E panel lists mods');
+  assert.match(page.panel, /E2E Broken.*error.*SyntaxError.*line 1/s, 'panel shows why the broken mod failed');
 
   assert.equal(page.adblock, 'blocked', 'adblock blocks ad servers');
   assert.equal(page.modBlock, 'blocked', 'mod network rule applied');

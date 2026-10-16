@@ -1,9 +1,9 @@
 # {{name}}
 
-Un mod [Deezer Eagle](https://github.com/Snoxy008/Deezer-Eagle).
+A [Deezer Eagle](https://github.com/Snoxy008/Deezer-Eagle) mod.
 
-## Installation
+## Install
 
 ```powershell
-eagle install <ton-pseudo-github>/<ce-depot>
+eagle install <your-github-username>/<this-repo>
 ```

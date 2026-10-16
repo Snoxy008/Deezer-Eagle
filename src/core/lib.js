@@ -9,7 +9,7 @@ const vm = require('vm');
 const MOD_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function readText(file) {
-  return fs.readFileSync(file, 'utf8').replace(/^﻿/, '');
+  return fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
 }
 
 function readJson(file, fallback) {
@@ -203,7 +203,7 @@ function buildScripts(home, state, version) {
         new vm.Script(code, { filename: url });
       } catch (err) {
         const line = /:(\d+)\n/.exec(String(err.stack));
-        throw new Error(`${err.name}: ${err.message}${line ? ` (${file}, ligne ${line[1]})` : ''}`);
+        throw new Error(`${err.name}: ${err.message}${line ? ` (${file}, line ${line[1]})` : ''}`);
       }
       scripts.push({ id: mod.id, code });
     } catch (err) {
