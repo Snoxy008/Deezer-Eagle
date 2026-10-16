@@ -1,0 +1,9 @@
+{
+  "id": "{{id}}",
+  "name": "{{name}}",
+  "version": "0.1.0",
+  "description": "Décris ce que fait ton mod.",
+  "author": "{{author}}",
+  "main": "mod.js",
+  "styles": ["style.css"]
+}

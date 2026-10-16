@@ -1,0 +1,28 @@
+{
+  "id": "no-tracking",
+  "name": "No Tracking",
+  "version": "1.0.0",
+  "description": "Bloque les outils de mesure d'audience et de télémétrie tiers.",
+  "author": "Snoxy008",
+  "network": {
+    "block": [
+      "google-analytics.com",
+      "analytics.google.com",
+      "googletagmanager.com",
+      "scorecardresearch.com",
+      "quantserve.com",
+      "hotjar.com",
+      "hotjar.io",
+      "clarity.ms",
+      "bat.bing.com",
+      "mixpanel.com",
+      "amplitude.com",
+      "cdn.segment.com",
+      "api.segment.io",
+      "sentry.io",
+      "browser-intake-datadoghq.com",
+      "browser-intake-datadoghq.eu",
+      "nr-data.net"
+    ]
+  }
+}

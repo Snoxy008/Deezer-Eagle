@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "mods": [
+    {
+      "id": "adblock",
+      "name": "AdBlock",
+      "description": "Bloque les régies publicitaires et masque les emplacements de pub.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/adblock",
+      "default": true
+    },
+    {
+      "id": "no-tracking",
+      "name": "No Tracking",
+      "description": "Bloque les outils de mesure d'audience et de télémétrie tiers.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/no-tracking",
+      "default": true
+    },
+    {
+      "id": "copy-link",
+      "name": "Copy Link",
+      "description": "Ctrl+Shift+L copie le lien de la page Deezer ouverte.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/copy-link"
+    }
+  ]
+}

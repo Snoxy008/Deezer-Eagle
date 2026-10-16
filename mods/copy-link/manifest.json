@@ -1,0 +1,8 @@
+{
+  "id": "copy-link",
+  "name": "Copy Link",
+  "version": "1.0.0",
+  "description": "Ctrl+Shift+L copie le lien de la page Deezer ouverte (album, playlist, artiste...).",
+  "author": "Snoxy008",
+  "main": "mod.js"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "e2e-mod",
+  "name": "E2E Mod",
+  "version": "1.0.0",
+  "main": "mod.js",
+  "styles": ["style.css"],
+  "network": { "block": ["e2e-blocked.test"] }
+}

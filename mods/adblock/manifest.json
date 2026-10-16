@@ -1,0 +1,33 @@
+{
+  "id": "adblock",
+  "name": "AdBlock",
+  "version": "1.0.0",
+  "description": "Bloque les régies publicitaires et masque les emplacements de pub.",
+  "author": "Snoxy008",
+  "styles": ["style.css"],
+  "network": {
+    "block": [
+      "doubleclick.net",
+      "googlesyndication.com",
+      "googleadservices.com",
+      "googletagservices.com",
+      "adservice.google.com",
+      "2mdn.net",
+      "adnxs.com",
+      "smartadserver.com",
+      "criteo.com",
+      "criteo.net",
+      "amazon-adsystem.com",
+      "adsrvr.org",
+      "rubiconproject.com",
+      "pubmatic.com",
+      "openx.net",
+      "casalemedia.com",
+      "teads.tv",
+      "taboola.com",
+      "outbrain.com",
+      "moatads.com",
+      "adform.net"
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test test/core.test.js
+
+  cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        powershell: [powershell, pwsh]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: CLI tests (${{ matrix.powershell }})
+        shell: cmd
+        run: ${{ matrix.powershell }} -NoProfile -ExecutionPolicy Bypass -File test\cli.test.ps1
+
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: test/e2e
+      - run: node run.js
+        working-directory: test/e2e

@@ -1,0 +1,10 @@
+{
+  "name": "deezer-eagle",
+  "private": true,
+  "description": "Mods pour Deezer Desktop : adblock, thèmes et extensions installables depuis GitHub.",
+  "scripts": {
+    "test": "node --test test/core.test.js",
+    "test:cli": "pwsh -NoProfile -File test/cli.test.ps1",
+    "test:e2e": "npm --prefix test/e2e ci && npm --prefix test/e2e test"
+  }
+}
