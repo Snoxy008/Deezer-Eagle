@@ -65,7 +65,8 @@ async function main() {
   console.log(`work dir: ${work}`);
   fs.cpSync(path.dirname(electronBinary), deezerDir, { recursive: true, verbatimSymlinks: true });
   fs.rmSync(path.join(resources, 'default_app.asar'), { force: true });
-  await asar.createPackage(path.join(__dirname, 'fake-deezer'), path.join(resources, 'app.asar'));
+  // createPackage resolves before its write stream closes; a child process exits only once it has.
+  execFileSync(process.execPath, ['-e', 'require("@electron/asar").createPackage(process.argv[1], process.argv[2])', path.join(__dirname, 'fake-deezer'), path.join(resources, 'app.asar')], { cwd: __dirname });
   const originalHash = sha256(path.join(resources, 'app.asar'));
 
   powershell(path.join(root, 'src/cli/eagle.ps1'), 'setup', root);

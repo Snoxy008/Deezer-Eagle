@@ -118,8 +118,13 @@ function Save-Config($Config) {
 # File contents follow; their offsets are relative to 8 + headerSize.
 # ---------------------------------------------------------------------------
 
+# Shared read: an antivirus or indexer holding the archive must not block us.
+function Open-SharedRead([string]$Path) {
+    return [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+}
+
 function Read-AsarHeader([string]$Path) {
-    $stream = [IO.File]::OpenRead($Path)
+    $stream = Open-SharedRead $Path
     try {
         $reader = New-Object IO.BinaryReader $stream
         $sizePickle = $reader.ReadUInt32()
@@ -146,7 +151,7 @@ function Read-AsarEntry([string]$Path, [string]$Name) {
     }
     $offset = [int64]$node['offset']
     $size = [int]$node['size']
-    $stream = [IO.File]::OpenRead($Path)
+    $stream = Open-SharedRead $Path
     try {
         [void]$stream.Seek($header.DataOffset + $offset, [IO.SeekOrigin]::Begin)
         $buffer = New-Object byte[] $size
