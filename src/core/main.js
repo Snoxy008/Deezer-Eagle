@@ -7,7 +7,7 @@
 // answers the Eagle library through the preload bridge.
 
 const { app, session, ipcMain, dialog, net, BrowserWindow } = require('electron');
-const { spawn } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -245,19 +245,30 @@ function scheduleReapplyAfterUpdate() {
     const pending = lib.pendingUpdateDir(process.resourcesPath, pkg.name || app.getName(), localAppData);
     if (!lib.hasPendingUpdate(pending)) return;
     log('a Deezer update is about to be installed, Eagle will patch it again afterwards');
-    // The watcher outlives Deezer: give it real output handles (a detached
-    // console program may not start without them) and keep what it prints.
-    const output = fs.openSync(path.join(HOME, 'logs', 'update-watcher.log'), 'w');
-    const child = spawn(SHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', CLI, 'reapply-after-update'], {
-      cwd: HOME,
-      detached: true,
-      stdio: ['ignore', output, output],
-      windowsHide: true,
-      env: Object.assign({}, process.env, {
-        DEEZER_EAGLE_HOME: HOME,
-        DEEZER_EAGLE_DEEZER_PATH: path.dirname(process.execPath),
-      }),
+    const env = Object.assign({}, process.env, {
+      DEEZER_EAGLE_HOME: HOME,
+      DEEZER_EAGLE_DEEZER_PATH: path.dirname(process.execPath),
     });
+    const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', CLI, 'reapply-after-update'];
+    if (process.platform === 'win32') {
+      // A detached console program gets no console on Windows and may never
+      // start: let PowerShell's Start-Process launch the watcher in its own
+      // hidden console, and wait for that (about a second) before quitting.
+      const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+      const argumentList = args.map((arg) => (arg === CLI ? `"${arg}"` : arg)).join(' ');
+      const command =
+        `Start-Process -FilePath powershell.exe -WindowStyle Hidden ` +
+        `-WorkingDirectory ${quote(HOME)} -ArgumentList ${quote(argumentList)}`;
+      execFileSync(SHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+        env,
+        windowsHide: true,
+        timeout: 20000,
+      });
+      log('post-update watcher started');
+      return;
+    }
+    const output = fs.openSync(path.join(HOME, 'logs', 'update-watcher.log'), 'w');
+    const child = spawn(SHELL, args, { cwd: HOME, detached: true, stdio: ['ignore', output, output], env });
     fs.closeSync(output);
     child.on('error', (err) => log('the post-update watcher did not start:', err.message));
     child.unref();
