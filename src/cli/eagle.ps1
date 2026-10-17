@@ -379,6 +379,7 @@ function Invoke-ReapplyAfterUpdate {
     $logFile = Join-Path $script:EagleHome 'logs/update.log'
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logFile) | Out-Null
     $log = { param($Text) Add-Content -LiteralPath $logFile -Value "[$((Get-Date).ToString('s'))] $Text" }
+    & $log "Watcher started (pid $PID)."
     $dir = Find-Deezer
     if (-not $dir) { & $log 'Deezer not found.'; return }
     $paths = Get-PatchPaths $dir

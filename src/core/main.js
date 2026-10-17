@@ -245,16 +245,23 @@ function scheduleReapplyAfterUpdate() {
     const pending = lib.pendingUpdateDir(process.resourcesPath, pkg.name || app.getName(), localAppData);
     if (!lib.hasPendingUpdate(pending)) return;
     log('a Deezer update is about to be installed, Eagle will patch it again afterwards');
-    spawn(SHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', CLI, 'reapply-after-update'], {
+    // The watcher outlives Deezer: give it real output handles (a detached
+    // console program may not start without them) and keep what it prints.
+    const output = fs.openSync(path.join(HOME, 'logs', 'update-watcher.log'), 'w');
+    const child = spawn(SHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', CLI, 'reapply-after-update'], {
       cwd: HOME,
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', output, output],
       windowsHide: true,
       env: Object.assign({}, process.env, {
         DEEZER_EAGLE_HOME: HOME,
         DEEZER_EAGLE_DEEZER_PATH: path.dirname(process.execPath),
       }),
-    }).unref();
+    });
+    fs.closeSync(output);
+    child.on('error', (err) => log('the post-update watcher did not start:', err.message));
+    child.unref();
+    log(`post-update watcher started (pid ${child.pid})`);
   } catch (err) {
     log('could not schedule the post-update patch:', err && err.message);
   }

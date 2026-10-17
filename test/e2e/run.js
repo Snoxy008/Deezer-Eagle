@@ -172,8 +172,9 @@ async function main() {
     await sleep(1000);
     repatched = isStub(path.join(resources, 'app.asar'));
   }
-  const updateLog = fs.readFileSync(path.join(home, 'logs', 'update.log'), 'utf8');
-  console.log(updateLog);
+  const readLog = (name) => (fs.existsSync(path.join(home, 'logs', name)) ? fs.readFileSync(path.join(home, 'logs', name), 'utf8') : `(no ${name})`);
+  const updateLog = readLog('update.log');
+  console.log(`${readLog('main.log')}\n${readLog('update-watcher.log')}\n${updateLog}`);
   assert.ok(repatched, 'Deezer patched again after its update');
   assert.equal(sha256(path.join(resources, '_app.asar')), originalHash, 'the updated archive became the original');
   assert.match(updateLog, /patched again/);
