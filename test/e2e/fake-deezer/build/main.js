@@ -1,57 +1,32 @@
 'use strict';
-// Stand-in for Deezer's main process: serves a "www.deezer.com" page with a
-// strict CSP, registers its own webRequest listener (like a real app could),
-// then reports what the page and the app observed to $E2E_RESULT.
+// Stand-in for Deezer Desktop's main process, shaped like the real one: a
+// window loading a local build/index.html with a non-sandboxed preload, its
+// own webRequest listener, and no network of its own (every host is mapped to
+// a local test server). It runs the test driver ($E2E_DRIVER) in the page and
+// writes what the page and the app observed to $E2E_RESULT.
 
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, dialog, session } = require('electron');
 const fs = require('fs');
 const http = require('http');
+const path = require('path');
 
 const port = Number(process.env.E2E_PORT);
 app.commandLine.appendSwitch('host-resolver-rules', `MAP * 127.0.0.1:${port}`);
 app.commandLine.appendSwitch('no-proxy-server');
 
-const PAGE = '<!doctype html><title>Deezer</title><div id="probe">probe</div><script src="/page.js"></script>';
-const PAGE_JS = `
-(async () => {
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  for (let i = 0; i < 200 && !window.Eagle; i++) await sleep(25);
-  await sleep(200);
-  const tryFetch = (url) => fetch(url, { mode: 'no-cors' }).then(() => 'ok', () => 'blocked');
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'E', ctrlKey: true, shiftKey: true }));
-  const host = document.querySelector('deezer-eagle');
-  const panel = host && host.shadowRoot.querySelector('.panel');
-  const probe = getComputedStyle(document.getElementById('probe'));
-  history.pushState({}, '', '/fr/album/1');
-  window.__e2e = {
-    eagle: typeof window.Eagle,
-    mods: window.Eagle ? Eagle.mods.map((mod) => mod.id + ':' + mod.status) : [],
-    modRan: document.documentElement.dataset.e2eMod || '',
-    navigated: document.documentElement.dataset.e2eNav || '',
-    probeColor: probe.color,
-    probeBackground: probe.backgroundColor,
-    panel: panel ? panel.textContent : '',
-    adblock: await tryFetch('http://ads.doubleclick.net/pixel'),
-    modBlock: await tryFetch('http://tracker.e2e-blocked.test/x'),
-    allowed: await tryFetch('http://cdn.e2e-allowed.test/x'),
-    appHook: await tryFetch('http://www.deezer.com/app-hook'),
-  };
-})();
-`;
+// Native dialogs cannot be clicked in a test: record them and answer "Cancel".
+const dialogs = [];
+dialog.showMessageBox = async (...args) => {
+  const options = args.find((arg) => arg && Array.isArray(arg.buttons));
+  dialogs.push(options.message);
+  return { response: options.cancelId };
+};
 
 const hits = [];
 const server = http.createServer((req, res) => {
   hits.push(`${req.headers.host}${req.url}`);
-  if (req.url === '/') {
-    res.setHeader('content-type', 'text/html');
-    res.setHeader('content-security-policy', "script-src 'self'; style-src 'self'");
-    return res.end(PAGE);
-  }
-  if (req.url === '/page.js') {
-    res.setHeader('content-type', 'text/javascript');
-    return res.end(PAGE_JS);
-  }
-  return res.end('ok');
+  res.setHeader('access-control-allow-origin', '*');
+  res.end('ok');
 });
 
 app.whenReady().then(async () => {
@@ -62,12 +37,26 @@ app.whenReady().then(async () => {
     callback({ cancel: true });
   });
 
-  const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true } });
-  await win.loadURL('http://www.deezer.com/');
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    show: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false },
+  });
+  await win.loadFile(path.join(__dirname, 'index.html'));
   let page = null;
-  for (let i = 0; i < 300 && !page; i++) {
-    page = await win.webContents.executeJavaScript('window.__e2e || null');
-    if (!page) await new Promise((resolve) => setTimeout(resolve, 50));
+  try {
+    const mode = `window.E2E_MODE = ${JSON.stringify(process.env.E2E_MODE || 'full')};\n`;
+    page = await win.webContents.executeJavaScript(mode + fs.readFileSync(process.env.E2E_DRIVER, 'utf8'));
+  } catch (err) {
+    page = { driverError: String(err && err.message) };
+  }
+  // E2E_SCREENSHOT=file.png saves what the window shows, to eyeball the UI.
+  // Hidden windows are not repainted, so show it first.
+  if (process.env.E2E_SCREENSHOT) {
+    win.showInactive();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    fs.writeFileSync(process.env.E2E_SCREENSHOT, (await win.webContents.capturePage()).toPNG());
   }
   fs.writeFileSync(
     process.env.E2E_RESULT,
@@ -78,6 +67,7 @@ app.whenReady().then(async () => {
       appPath: app.getAppPath(),
       userData: app.getPath('userData'),
       appListenerCalls,
+      dialogs,
       hits,
     }),
   );

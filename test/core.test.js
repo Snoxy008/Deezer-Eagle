@@ -189,6 +189,7 @@ test('buildScripts runs mods against the client runtime', () => {
   window.location = { href: 'https://www.deezer.com/' };
   window.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
   window.document = {
+    addEventListener() {},
     adoptedStyleSheets: [],
     documentElement: { append() {} },
     createElement: () => ({
@@ -233,4 +234,79 @@ test('built-in mods have valid manifests and registry entries', () => {
       assert.ok(fs.existsSync(lib.resolveInside(dir, file)), `${entry.id}: ${file}`);
     }
   }
+});
+
+test('isAppUrl accepts Deezer pages only', () => {
+  assert.ok(lib.isAppUrl('file:///C:/Program%20Files/Deezer/resources/_app.asar/build/index.html'));
+  assert.ok(lib.isAppUrl('https://www.deezer.com/fr/'));
+  assert.ok(lib.isAppUrl('https://deezer.com/'));
+  assert.ok(!lib.isAppUrl('https://accounts.google.com/o/oauth2'));
+  assert.ok(!lib.isAppUrl('https://evil-deezer.com/'));
+  assert.ok(!lib.isAppUrl('devtools://devtools/bundled/inspector.html'));
+  assert.ok(!lib.isAppUrl('about:blank'));
+  assert.ok(!lib.isAppUrl('data:text/html,hi'));
+  assert.ok(!lib.isAppUrl('not a url'));
+});
+
+test('listMods, setModEnabled and removeMod manage mods on disk', () => {
+  const home = makeHome({
+    alpha: {
+      'manifest.json': { id: 'alpha', name: 'Alpha', version: '1.0.0', author: 'me' },
+      '.eagle-source.json': { type: 'github', repo: 'Snoxy008/Deezer-Eagle', path: 'mods/alpha' },
+    },
+  });
+  const devSources = fs.mkdtempSync(path.join(os.tmpdir(), 'eagle-dev-'));
+  fs.writeFileSync(path.join(devSources, 'manifest.json'), JSON.stringify({ id: 'dev', name: 'Dev', version: '0.1.0' }));
+  fs.symlinkSync(devSources, path.join(home, 'mods', 'dev'), 'junction');
+
+  const byId = () => Object.fromEntries(lib.listMods(home).map((mod) => [mod.id, mod]));
+  assert.equal(byId().alpha.source.repo, 'Snoxy008/Deezer-Eagle');
+  assert.equal(byId().alpha.linked, false);
+  assert.equal(byId().dev.linked, true);
+  assert.equal(byId().dev.source, null);
+
+  lib.setModEnabled(home, 'alpha', false);
+  lib.setModEnabled(home, 'alpha', false);
+  assert.deepEqual(lib.readJson(path.join(home, 'config.json')).disabled, ['alpha']);
+  assert.equal(byId().alpha.enabled, false);
+  lib.setModEnabled(home, 'alpha', true);
+  assert.equal(byId().alpha.enabled, true);
+
+  lib.removeMod(home, 'dev');
+  assert.ok(fs.existsSync(path.join(devSources, 'manifest.json')), 'a linked mod keeps its sources');
+  lib.setModEnabled(home, 'alpha', false);
+  lib.removeMod(home, 'alpha');
+  assert.deepEqual(Object.keys(byId()), []);
+  assert.deepEqual(lib.readJson(path.join(home, 'config.json')).disabled, [], 'removed mods leave the disabled list');
+  assert.throws(() => lib.removeMod(home, '../config.json'));
+});
+
+test('install specs from the page are restricted to the registry and GitHub', () => {
+  for (const spec of ['copy-link', 'someone/repo', 'someone/repo/themes/dark', 'someone/repo@v1.2', 'some-one/re_po/x@feature/y']) {
+    assert.ok(lib.isInstallSpec(spec), spec);
+  }
+  for (const spec of ['C:\\Windows', '/etc', './mod', 'someone/../etc', 'https://evil.example/x', '', 42, 'a b']) {
+    assert.ok(!lib.isInstallSpec(spec), String(spec));
+  }
+  const registry = { mods: [{ id: 'adblock', repo: 'Snoxy008/Deezer-Eagle' }, { id: 'theme', repo: 'someone/theme' }] };
+  assert.ok(lib.isOfficialSpec('adblock', registry));
+  assert.ok(lib.isOfficialSpec('Snoxy008/Deezer-Eagle/mods/copy-link', null));
+  assert.ok(!lib.isOfficialSpec('theme', registry), 'registry entries from other repos are not official');
+  assert.ok(!lib.isOfficialSpec('someone/repo', registry));
+  assert.ok(!lib.isOfficialSpec('snoxy008/deezer-eagle-fork/x', registry));
+});
+
+test('pending Deezer updates are found in the electron-updater cache', () => {
+  const resources = fs.mkdtempSync(path.join(os.tmpdir(), 'eagle-res-'));
+  const local = fs.mkdtempSync(path.join(os.tmpdir(), 'eagle-local-'));
+  assert.equal(lib.pendingUpdateDir(resources, 'Deezer-Desktop', local), path.join(local, 'deezer-desktop-updater', 'pending'));
+  fs.writeFileSync(path.join(resources, 'app-update.yml'), 'provider: generic\nupdaterCacheDirName: custom-updater\r\n');
+  const pending = lib.pendingUpdateDir(resources, 'deezer-desktop', local);
+  assert.equal(pending, path.join(local, 'custom-updater', 'pending'));
+  assert.ok(!lib.hasPendingUpdate(pending));
+  fs.mkdirSync(pending, { recursive: true });
+  fs.writeFileSync(path.join(pending, 'update-info.json'), '{}');
+  assert.ok(!lib.hasPendingUpdate(pending), 'no installer yet');
+  fs.writeFileSync(path.join(pending, 'DeezerDesktopSetup_7.1.341.exe'), '');
+  assert.ok(lib.hasPendingUpdate(pending));
 });

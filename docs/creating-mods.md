@@ -24,7 +24,7 @@ eagle config devtools on   # then restart Deezer and press Ctrl+Shift+I
 ```
 
 `mod.log(...)` messages show up in the console, and an error in your mod shows up in the Eagle
-panel (**Ctrl+Shift+E**) with the offending line, without breaking the other mods.
+library (sidebar, or **Ctrl+Shift+E**) with the offending line, without breaking the other mods.
 
 ## `manifest.json`
 
@@ -48,7 +48,7 @@ panel (**Ctrl+Shift+E**) with the offending line, without breaking the other mod
 | `id` | yes | Unique identifier: lowercase letters, digits, `-` or `_` (it is the installed folder name). |
 | `name` | yes | Display name. |
 | `version` | yes | Mod version, e.g. `1.0.0`. Shown by `eagle update`. |
-| `description` | no | One sentence, shown in the Eagle panel and `eagle search`. |
+| `description` | no | One sentence, shown in the Eagle library and `eagle search`. |
 | `author` | no | Your username. |
 | `main` | no | JavaScript file run inside the page. |
 | `styles` | no | CSS file(s) applied to the page, in order. |
@@ -70,7 +70,8 @@ are available:
 | `Eagle.onNavigate(callback)` | Calls `callback(url)` every time the page changes inside Deezer (album, playlist...). Returns a function that unsubscribes. |
 | `Eagle.addStyle(css)` | Adds CSS to the page. Returns a function that removes it. |
 | `Eagle.notify(text, { timeout })` | Shows a small notification in the bottom-right corner. |
-| `Eagle.togglePanel()` | Opens or closes the Eagle panel. |
+| `Eagle.openLibrary(tab)` | Opens the Eagle library, on `'installed'` or `'marketplace'`. |
+| `Eagle.closeLibrary()` | Closes it. |
 | `Eagle.mods` | List of installed mods and their status. |
 | `Eagle.version` | Deezer Eagle version. |
 
@@ -105,6 +106,41 @@ mod.log(`Deezer started ${launches} times with this mod`);
 > The selectors above are examples: use the inspector (Ctrl+Shift+I) to find the ones in the
 > current version of Deezer. Prefer stable attributes such as `data-testid` or `aria-label` over
 > generated classes (`.css-1x2y3z`) that change with every update.
+
+### Finding your way in Deezer's page
+
+Deezer's interface is a React app rendered inside `#dzr-app`. Its generated class names change
+with every release, but these hooks are stable:
+
+| Selector | What it is |
+| --- | --- |
+| `.naboo` | the app shell (sidebar, top bar and content) |
+| `#page_topbar` | the top bar with the search field |
+| `#page_content` | the main content area |
+| `#page_player` | the player bar |
+| `[data-testid="..."]` | most components, e.g. `[data-testid="album_thumbnail"]` |
+| `svg[data-testid="HouseFilledIcon"]` | icons: `...FilledIcon` marks the current page in the sidebar |
+
+### Theming
+
+Deezer's colours are CSS variables, so a theme is mostly a `style.css` that overrides them,
+for light (`:root, [data-theme="light"]`) and dark (`[data-theme="dark"]`) mode:
+
+```css
+[data-theme="dark"] {
+  --color-bg-main: #0b0b10;
+  --color-bg-secondary: #15151c;
+  --color-bg-tertiary: #20202a;
+  --color-text-main: #f2f2f7;
+  --color-text-secondary: #a0a0ab;
+  --color-accent-main: #ff5c8a;
+}
+```
+
+Other useful variables: `--color-accent-strong`, `--color-bg-tertiary-hover`,
+`--color-divider-main`, `--color-feedback-error`. Some components read a second layer of
+`--tempo-colors-...` variables that the app sets at runtime: override those with `!important`
+if a colour does not change. The Eagle library uses the same variables, so it follows your theme.
 
 ### Good practices
 

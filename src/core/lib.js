@@ -7,6 +7,11 @@ const path = require('path');
 const vm = require('vm');
 
 const MOD_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const OFFICIAL_REPO = 'snoxy008/deezer-eagle';
+const DEEZER_HOST = /(^|\.)deezer\.com$/i;
+// What a page may ask to install: a registry id, or owner/repo[/path][@ref] on
+// GitHub. Local folders stay CLI-only.
+const INSTALL_SPEC = /^(?:[a-z0-9][a-z0-9_-]{0,63}|[A-Za-z0-9][\w-]*\/[\w.-]+(?:\/[\w./-]+)?(?:@[\w./-]+)?)$/;
 
 function readText(file) {
   return fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
@@ -222,8 +227,104 @@ function buildScripts(home, state, version) {
   return scripts;
 }
 
+// Deezer Desktop renders its UI from a local index.html; the web player lives
+// on deezer.com. Remote pages such as login popups are left alone.
+function isAppUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return DEEZER_HOST.test(parsed.hostname);
+  return !['about:', 'blob:', 'chrome:', 'chrome-extension:', 'data:', 'devtools:', 'javascript:'].includes(parsed.protocol);
+}
+
+function isLink(dir) {
+  try {
+    return fs.lstatSync(dir).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+// What the library shows: loadState's view plus where each mod comes from.
+function listMods(home) {
+  return loadState(home).mods.map((mod) => {
+    const linked = isLink(mod.dir);
+    const source = linked ? null : readJson(path.join(mod.dir, '.eagle-source.json'), null);
+    return Object.assign(modInfo(mod), { linked, source });
+  });
+}
+
+function setModEnabled(home, id, enabled) {
+  const file = path.join(home, 'config.json');
+  const config = readJson(file, null) || {};
+  const disabled = toList(config.disabled).filter((other) => other !== id);
+  if (!enabled) disabled.push(id);
+  config.disabled = disabled;
+  fs.writeFileSync(file, JSON.stringify(config, null, 2));
+}
+
+// Removes an installed mod. A linked dev mod only loses its link, never its files.
+function removeMod(home, id) {
+  if (!MOD_ID.test(String(id))) throw new Error(`invalid mod id "${id}"`);
+  const dir = path.join(home, 'mods', id);
+  if (isLink(dir)) {
+    try {
+      fs.unlinkSync(dir);
+    } catch {
+      fs.rmdirSync(dir); // Windows junction
+    }
+  } else {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  setModEnabled(home, id, true);
+}
+
+function isInstallSpec(spec) {
+  return typeof spec === 'string' && INSTALL_SPEC.test(spec) && !spec.includes('..');
+}
+
+// Official mods install without a confirmation, like in the CLI.
+function isOfficialSpec(spec, registry) {
+  if (spec.toLowerCase().startsWith(`${OFFICIAL_REPO}/`)) return true;
+  const entry = toList(registry && registry.mods).find((mod) => mod && mod.id === spec);
+  return Boolean(entry && String(entry.repo).toLowerCase() === OFFICIAL_REPO);
+}
+
+// electron-updater keeps a downloaded update in <LOCALAPPDATA>/<cache dir>/pending
+// until the app quits and runs the installer.
+function pendingUpdateDir(resourcesPath, packageName, localAppData) {
+  let dirName = `${String(packageName).toLowerCase()}-updater`;
+  try {
+    const yml = readText(path.join(resourcesPath, 'app-update.yml'));
+    const match = /^updaterCacheDirName:\s*['"]?([^'"\r\n]+)/m.exec(yml);
+    if (match) dirName = match[1].trim();
+  } catch {
+    // No app-update.yml: keep electron-builder's default name.
+  }
+  return path.join(localAppData, dirName, 'pending');
+}
+
+function hasPendingUpdate(dir) {
+  try {
+    return fs.readdirSync(dir).some((file) => /\.exe$/i.test(file));
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   MOD_ID,
+  isAppUrl,
+  listMods,
+  setModEnabled,
+  removeMod,
+  isInstallSpec,
+  isOfficialSpec,
+  pendingUpdateDir,
+  hasPendingUpdate,
   readText,
   readJson,
   resolveInside,

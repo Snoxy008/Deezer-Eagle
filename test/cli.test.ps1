@@ -180,6 +180,18 @@ Check 'Resolve-ModSpec understands every source format' {
     $failed = $false
     try { [void](Resolve-ModSpec '.\missing-folder') } catch { $failed = $_.Exception.Message -like 'Folder not found*' }
     Assert-True $failed 'missing local folder is not sent to GitHub'
+    # Installs asked by the library never read local folders, even existing ones.
+    Push-Location $root
+    try {
+        $spec = Resolve-ModSpec 'mods/adblock' $true
+        Assert-Equal 'github' $spec.type 'remote only: owner/repo stays on GitHub'
+        Assert-Equal 'mods/adblock' $spec.repo 'remote only: repo'
+        $failed = $false
+        try { [void](Resolve-ModSpec $root $true) } catch { $failed = $true }
+        Assert-True $failed 'remote only: absolute folder refused'
+    } finally {
+        Pop-Location
+    }
 }
 
 Check 'install, disable, enable, update and remove a local mod' {

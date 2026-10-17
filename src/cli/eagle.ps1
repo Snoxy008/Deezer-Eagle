@@ -373,6 +373,47 @@ function Invoke-Apply {
     if ($wasRunning) { Start-Deezer $dir }
 }
 
+# Started in the background by the core when Deezer quits with an update
+# pending: waits for the installer to replace app.asar, then patches again.
+function Invoke-ReapplyAfterUpdate {
+    $logFile = Join-Path $script:EagleHome 'logs/update.log'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logFile) | Out-Null
+    $log = { param($Text) Add-Content -LiteralPath $logFile -Value "[$((Get-Date).ToString('s'))] $Text" }
+    $dir = Find-Deezer
+    if (-not $dir) { & $log 'Deezer not found.'; return }
+    $paths = Get-PatchPaths $dir
+    $deadline = (Get-Date).AddMinutes(15)
+    & $log "Waiting for the Deezer update in $dir"
+    while ((Get-Date) -lt $deadline) {
+        if ((Test-Path -LiteralPath $paths.Asar -PathType Leaf) -and -not (Test-EagleStub $paths.Asar)) { break }
+        Start-Sleep -Seconds 2
+    }
+    if ((Get-Date) -ge $deadline) { & $log 'No update was installed.'; return }
+    # The installer may still be writing: wait until the archive stops changing
+    # and no updater process is left.
+    $lastSize = -1
+    $stable = 0
+    while ((Get-Date) -lt $deadline -and $stable -lt 3) {
+        Start-Sleep -Seconds 2
+        $item = Get-Item -LiteralPath $paths.Asar -ErrorAction SilentlyContinue
+        $size = -1
+        if ($item) { $size = $item.Length }
+        $installers = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $processPath = $null
+            try { $processPath = $_.Path } catch { }
+            $processPath -and $processPath -like '*-updater*'
+        })
+        if ($size -ge 0 -and $size -eq $lastSize -and $installers.Count -eq 0) { $stable++ } else { $stable = 0 }
+        $lastSize = $size
+    }
+    try {
+        Invoke-Apply
+        & $log 'Deezer is patched again.'
+    } catch {
+        & $log "Patching failed: $($_.Exception.Message)"
+    }
+}
+
 function Invoke-Restore {
     $dir = Get-DeezerOrFail
     $paths = Get-PatchPaths $dir
@@ -476,14 +517,20 @@ function Get-Registry {
 
 # Turns what the user typed into a source: a GitHub URL, a local folder,
 # owner/repo[/path][@ref], or the id of a mod listed in registry.json.
-function Resolve-ModSpec([string]$Spec) {
+# -RemoteOnly (installs asked by the Eagle library) never reads local folders.
+function Resolve-ModSpec([string]$Spec, [bool]$RemoteOnly = $false) {
     if ($Spec -match '^https?://github\.com/([^/]+)/([^/#?]+?)(?:\.git)?(?:/tree/([^/]+)(?:/(.+?))?)?/?$') {
         return [ordered]@{ type = 'github'; repo = "$($Matches[1])/$($Matches[2])"; path = [string]$Matches[4]; ref = [string]$Matches[3] }
     }
-    if (Test-Path -LiteralPath $Spec -PathType Container) {
+    if ($Spec -match '^\.|\\|^[A-Za-z]:|^/') {
+        if (-not $RemoteOnly -and (Test-Path -LiteralPath $Spec -PathType Container)) {
+            return [ordered]@{ type = 'local'; path = (Get-FullPath $Spec) }
+        }
+        throw "Folder not found: $Spec"
+    }
+    if (-not $RemoteOnly -and (Test-Path -LiteralPath $Spec -PathType Container)) {
         return [ordered]@{ type = 'local'; path = (Get-FullPath $Spec) }
     }
-    if ($Spec -match '^\.|\\|^[A-Za-z]:') { throw "Folder not found: $Spec" }
     if ($Spec -match '^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)((?:/[^@]+)?)(?:@(.+))?$') {
         return [ordered]@{ type = 'github'; repo = "$($Matches[1])/$($Matches[2])"; path = ([string]$Matches[3]).Trim('/'); ref = [string]$Matches[4] }
     }
@@ -563,10 +610,10 @@ function Set-ModEnabled([string]$Id, [bool]$Enabled) {
     Save-Config $config
 }
 
-function Invoke-Install([string[]]$Specs, [bool]$Yes) {
+function Invoke-Install([string[]]$Specs, [bool]$Yes, [bool]$RemoteOnly = $false) {
     if ($Specs.Count -eq 0) { throw 'Usage: eagle install <mod | owner/repo[/path][@ref] | url | folder>' }
     foreach ($spec in $Specs) {
-        $source = Resolve-ModSpec $spec
+        $source = Resolve-ModSpec $spec $RemoteOnly
         $work = New-TempDir
         try {
             $dir = Get-ModSourceDir $source $work
@@ -896,7 +943,7 @@ function Invoke-Setup([string]$SourceDir, [bool]$NoApply) {
     Write-Host '    eagle list           installed mods'
     Write-Host '    eagle search         find mods'
     Write-Host '    eagle help           all commands'
-    Write-Host '    Ctrl+Shift+E         Eagle panel inside Deezer'
+    Write-Host '    "Eagle" in Deezer''s sidebar: your mods and the marketplace'
 }
 
 function Invoke-Uninstall([bool]$Yes) {
@@ -972,7 +1019,7 @@ function Invoke-Eagle([string[]]$Argv) {
         'restart' { Invoke-Restart }
         'list' { Invoke-List }
         'search' { Invoke-Search ($values -join ' ') }
-        'install' { Invoke-Install $values $yes }
+        'install' { Invoke-Install $values $yes ($flags -contains '--remote') }
         'remove' { Invoke-Remove $values }
         'enable' { Invoke-Toggle $values $true }
         'disable' { Invoke-Toggle $values $false }
@@ -985,6 +1032,7 @@ function Invoke-Eagle([string[]]$Argv) {
         'upgrade' { Invoke-Upgrade }
         'uninstall' { Invoke-Uninstall $yes }
         'setup' { Invoke-Setup $values[0] ($flags -contains '--no-apply') }
+        'reapply-after-update' { Invoke-ReapplyAfterUpdate }
         'version' { Write-Host (Get-EagleVersion) }
         { $_ -in @('help', '-h', '--help', '/?') } { Show-Help }
         default { throw "Unknown command: ""$command"". Type ""eagle help""." }

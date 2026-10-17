@@ -20,7 +20,17 @@ That's it. The installer:
 > You need the regular Deezer Desktop app from [deezer.com/download](https://www.deezer.com/download).
 > The Microsoft Store version is write-protected by Windows and cannot be modified.
 
-Inside Deezer, **Ctrl+Shift+E** opens the Eagle panel with the list of active mods.
+## The Eagle library
+
+Once installed, an **Eagle** entry appears in Deezer's sidebar, right under *Explore*
+(**Ctrl+Shift+E** also opens it). It's a page inside Deezer, in Deezer's own colours:
+
+- **Installed**: every mod with its switch, its errors if it crashed, a *Remove* button and
+  *Check for updates*;
+- **Marketplace**: official mods and community mods from GitHub, installed in one click.
+  Mods that do not come from this repository ask for confirmation in a Windows dialog first.
+
+Changes apply when Deezer reloads: the library offers a *Reload now* button.
 
 ## Usage
 
@@ -39,13 +49,17 @@ Mod changes apply when Deezer reloads: **Ctrl+Shift+R**.
 
 ### After a Deezer update
 
-When Deezer updates itself, it replaces its files and the mods are gone. Just run:
+A Deezer update replaces the app's files, which removes the patch. When Deezer installs an
+update (the *"restart to complete the update"* banner), Eagle notices it and patches the new
+version again automatically a few seconds after the update finishes. If mods are ever missing
+anyway (for example after reinstalling Deezer), run:
 
 ```powershell
 eagle apply
 ```
 
-(`eagle status` tells you when this is needed.)
+(`eagle status` tells you when this is needed, and `logs\update.log` in the Eagle folder shows
+what happened after the last update.)
 
 ### What `eagle install` accepts
 
@@ -86,14 +100,15 @@ to [`registry.json`](registry.json) so it installs by its plain name.
 
 ## How it works
 
-Deezer Desktop is an [Electron](https://www.electronjs.org/) app that displays the deezer.com
-website. `eagle apply` renames the app archive (`resources\app.asar` → `resources\_app.asar`)
-and replaces it with a small loader that:
+Deezer Desktop is an [Electron](https://www.electronjs.org/) app whose interface is a web page
+(`build/index.html`) bundled in `resources\app.asar`. `eagle apply` renames that archive
+(`app.asar` → `_app.asar`) and replaces it with a small loader that:
 
 - starts the Deezer Eagle core, then the original Deezer app without modifying it
   (same name, same data folder: you stay logged in);
-- injects the `Eagle` API and the code of enabled mods into Deezer's page;
-- blocks the network requests listed by mods (this is how the adblock works).
+- injects the `Eagle` API, the library and the code of enabled mods into Deezer's page;
+- blocks the network requests listed by mods (this is how the adblock works);
+- patches Deezer again after it updates itself.
 
 If anything goes wrong, `eagle restore` puts the original archive back, byte for byte. If the
 Deezer Eagle folder disappears, Deezer starts normally without mods. To start Deezer once
@@ -130,7 +145,8 @@ npm run test:e2e    # end to end: a fake Deezer under Electron, patched by the r
 | `src/cli/eagle.ps1` | the `eagle` command |
 | `src/core/stub/index.js` | the loader placed in `app.asar` |
 | `src/core/main.js`, `lib.js` | main-process core: reads mods, injects them, blocks requests |
-| `src/core/client.js` | `Eagle` API and panel, injected into the page |
+| `src/core/client.js` | `Eagle` API, sidebar entry and library, injected into the page |
+| `src/core/preload.js` | bridge between the library and the core (install, enable, remove) |
 | `src/template/` | template used by `eagle new` |
 | `mods/` | official mods |
 | `registry.json` | registry of mods installable by name |

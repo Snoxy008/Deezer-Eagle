@@ -1,0 +1,43 @@
+:root {
+  --color-bg-main: #fdfcfe;
+  --color-bg-secondary: #f5f2f8;
+  --color-text-main: #0f0d13;
+  --color-accent-main: #a238ff;
+}
+body {
+  margin: 0;
+  font-family: sans-serif;
+}
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 80px;
+  width: 243px;
+}
+.nav-link {
+  display: flex;
+  gap: 12px;
+  padding: 8px;
+}
+#page_topbar {
+  position: fixed;
+  top: 0;
+  left: 243px;
+  right: 0;
+  height: 64px;
+}
+#page_content {
+  position: fixed;
+  top: 64px;
+  left: 243px;
+  right: 0;
+  bottom: 80px;
+}
+#page_player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 80px;
+}
