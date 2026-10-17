@@ -21,6 +21,8 @@
   await until(() => document.getElementById('probe'));
   await sleep(200);
   result.mods = Eagle.mods.map((mod) => `${mod.id}:${mod.status}`).sort();
+  result.theme = Eagle.theme;
+  result.themedContent = getComputedStyle(document.getElementById('probe').parentElement).backgroundColor;
   result.modRan = document.documentElement.dataset.e2eMod || '';
   const probe = getComputedStyle(document.getElementById('probe'));
   result.probeColor = probe.color;
@@ -29,12 +31,44 @@
   result.modBlock = await tryFetch('http://tracker.e2e-blocked.test/x');
   result.allowed = await tryFetch('http://cdn.e2e-allowed.test/x');
   result.appHook = await tryFetch('http://www.deezer.com/app-hook');
-  if (mode === 'installed' || mode === 'marketplace') {
+  if (['installed', 'themes', 'marketplace', 'settings'].includes(mode)) {
     // Screenshot modes: leave the library open on one tab.
     Eagle.openLibrary(mode);
     const shadow = document.querySelector('deezer-eagle').shadowRoot;
-    await until(() => shadow.querySelector(mode === 'installed' ? '.card[data-mod]' : '.card[data-spec]'), 10000);
-    await sleep(300);
+    const ready = { installed: '.card[data-mod]', themes: '.theme[data-theme]', marketplace: '.card[data-spec]', settings: '.panel' }[mode];
+    await until(() => shadow.querySelector(ready), 10000);
+    await sleep(1500);
+    return result;
+  }
+  if (mode === 'mods') {
+    // The official mods, used through their own interface.
+    const visible = (id) => getComputedStyle(document.getElementById(id)).display !== 'none';
+    result.offlineBanner = visible('offline-alert');
+    result.promo = visible('promo');
+    result.navStillVisible = getComputedStyle(document.querySelector('.nav')).display !== 'none';
+
+    const key = (name) => window.dispatchEvent(new KeyboardEvent('keydown', { key: name, ctrlKey: true, altKey: true, bubbles: true, cancelable: true }));
+    key('ArrowRight');
+    await sleep(100);
+    result.shortcutTrack = Eagle.player.getTrack().title;
+    const before = Eagle.player.getVolume();
+    key('ArrowUp');
+    result.shortcutVolume = Math.round((Eagle.player.getVolume() - before) * 100);
+
+    const moon = await until(() => document.querySelector('#page_player .eagle-sleep'));
+    result.moonBeforeVolume = Boolean(moon && moon.nextElementSibling && moon.nextElementSibling.id === 'volume-button');
+    moon.click();
+    const items = Array.from(document.querySelectorAll('.eagle-sleep-menu button'), (item) => item.textContent);
+    result.sleepChoices = items;
+    Array.from(document.querySelectorAll('.eagle-sleep-menu button')).find((item) => item.textContent === 'End of this track').click();
+    Eagle.player.setVolume(0.8);
+    Eagle.player.play();
+    Eagle.player.seek(Eagle.player.getDuration() - 15);
+    await until(() => Eagle.player.getVolume() < 0.8, 4000);
+    result.fading = Eagle.player.getVolume() < 0.8;
+    Eagle.player.seek(Eagle.player.getDuration() - 0.5);
+    result.pausedBySleepTimer = Boolean(await until(() => !Eagle.player.isPlaying(), 4000));
+    result.volumeRestored = Boolean(await until(() => Eagle.player.getVolume() === 0.8, 4000));
     return result;
   }
   if (mode !== 'full') return result;
@@ -97,6 +131,60 @@
   result.iframeBridge = typeof frame.contentWindow.EagleBridge;
   await window.EagleBridge.remove('e2e-broken');
   result.afterRemove = (await window.EagleBridge.list()).map((mod) => `${mod.id}:${mod.enabled}`).sort();
+
+  // Player API, on Deezer's dzPlayer.
+  result.track = Eagle.player.getTrack().title;
+  result.cover = Eagle.player.getTrack().cover;
+  const heard = [];
+  Eagle.player.on('track', (track) => heard.push(`track:${track.title}`));
+  Eagle.player.on('playing', (playing) => heard.push(`playing:${playing}`));
+  Eagle.player.next();
+  Eagle.player.togglePlay();
+  await until(() => heard.length >= 2, 3000);
+  result.playerEvents = heard.slice().sort();
+  result.isPlaying = Eagle.player.isPlaying();
+
+  // Mod settings, edited in the library, read live by the mod.
+  const tab = (name) => shadow().querySelector(`.tab[data-tab="${name}"]`).click();
+  tab('installed');
+  await until(() => shadow().querySelector('.card[data-mod="volume-wheel"] [data-action="settings"]'));
+  shadow().querySelector('.card[data-mod="volume-wheel"] [data-action="settings"]').click();
+  const stepInput = await until(() => shadow().querySelector('.card[data-mod="volume-wheel"] .settings input[type="number"]'));
+  result.stepDefault = stepInput ? stepInput.value : '';
+  if (stepInput) {
+    stepInput.value = '20';
+    stepInput.dispatchEvent(new Event('change'));
+  }
+  document.getElementById('volume-button').dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }));
+  result.volumeAfterWheel = window.dzPlayer.volume;
+
+  // A CSS-only mod (adblock) switches off and on without reloading, network rules included.
+  const adblockSwitch = () => shadow().querySelector('.card[data-mod="adblock"] .switch');
+  adblockSwitch().click();
+  await until(() => shadow().querySelector('.card[data-mod="adblock"] .switch[aria-checked="false"]'));
+  result.adblockOff = await tryFetch('http://ads.doubleclick.net/pixel');
+  result.adblockOffBadge = Boolean(shadow().querySelector('.card[data-mod="adblock"] .badge:not(.accent):not(.update)'));
+  adblockSwitch().click();
+  await until(() => shadow().querySelector('.card[data-mod="adblock"] .switch[aria-checked="true"]'));
+  result.adblockOn = await tryFetch('http://ads.doubleclick.net/pixel');
+
+  // Updates announced by the (fake) GitHub.
+  await until(() => shadow().querySelector('.badge.update'), 10000);
+  result.updateBadges = shadow().querySelectorAll('.badge.update').length;
+  result.sidebarDot = Boolean(document.querySelector('[data-eagle="update-dot"]'));
+  tab('settings');
+  result.eagleUpdate = (await until(() => Array.from(shadow().querySelectorAll('.button')).find((node) => /^Update to/.test(node.textContent)))) || {};
+  result.eagleUpdate = result.eagleUpdate.textContent || '';
+
+  // Themes switch live, including the tokens the app writes at runtime.
+  tab('themes');
+  result.themeCards = Array.from(shadow().querySelectorAll('.theme[data-theme]'), (card) => card.dataset.theme);
+  shadow().querySelector('.theme[data-theme="nord"] .button').click();
+  await sleep(100);
+  result.themedContent = getComputedStyle(document.getElementById('page_content')).backgroundColor;
+  result.themedIcon = getComputedStyle(document.getElementById('icon-probe')).color;
+  result.themedLibrary = getComputedStyle(shadow().querySelector('.library')).backgroundColor;
+  result.activeTheme = Eagle.theme;
 
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
   result.closedByEscape = !shadow().querySelector('.library');

@@ -1,0 +1,8 @@
+{
+  "id": "no-offline-banner",
+  "name": "No Offline Banner",
+  "version": "1.0.0",
+  "description": "Hides the \"application is offline\" banner that request blockers and VPNs can trigger by mistake.",
+  "author": "Snoxy008",
+  "styles": ["style.css"]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "sleep-timer",
+  "name": "Sleep Timer",
+  "version": "1.0.0",
+  "description": "A moon button next to the volume stops the music after 15 minutes to 1 h 30, or at the end of the track.",
+  "author": "Snoxy008",
+  "main": "mod.js",
+  "settings": [
+    {
+      "key": "fade",
+      "type": "toggle",
+      "label": "Fade out",
+      "description": "Lower the volume gently during the last 30 seconds.",
+      "default": true
+    }
+  ]
+}

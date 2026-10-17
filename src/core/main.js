@@ -6,7 +6,7 @@
 // renderer code into Deezer's page, applies their network block lists and
 // answers the Eagle library through the preload bridge.
 
-const { app, session, ipcMain, dialog, net, BrowserWindow } = require('electron');
+const { app, session, ipcMain, dialog, net, shell, BrowserWindow } = require('electron');
 const { execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -18,7 +18,9 @@ const CLI = path.join(HOME, 'cli', 'eagle.ps1');
 const PRELOAD = path.join(__dirname, 'preload.js');
 const LOG_FILE = path.join(HOME, 'logs', 'main.log');
 const SHELL = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
-const REGISTRY_URL = 'https://raw.githubusercontent.com/Snoxy008/Deezer-Eagle/main/registry.json';
+// Raw GitHub files (registry, manifests, VERSION); overridable for tests.
+const REMOTE = (process.env.DEEZER_EAGLE_REMOTE || 'https://raw.githubusercontent.com').replace(/\/+$/, '');
+const REGISTRY_URL = `${REMOTE}/Snoxy008/Deezer-Eagle/main/registry.json`;
 const TOPIC = 'deezer-eagle-mod';
 
 let VERSION = 'dev';
@@ -123,12 +125,46 @@ function runCli(args) {
   return cliQueue;
 }
 
-function fetchJson(url) {
+function fetchText(url) {
   const doFetch = typeof net.fetch === 'function' ? net.fetch.bind(net) : fetch;
   return doFetch(url, { headers: { 'user-agent': 'Deezer-Eagle', accept: 'application/vnd.github+json' } }).then((response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
+    return response.text();
   });
+}
+
+function fetchJson(url) {
+  return fetchText(url).then((body) => JSON.parse(body));
+}
+
+// Starts the CLI in a process that outlives Deezer (post-update patch, Eagle
+// upgrade). A detached console program gets no console on Windows and may
+// never start, so there PowerShell's Start-Process launches it in its own
+// hidden console; this waits for that (about a second).
+function startDetached(cliArgs, logName) {
+  const env = Object.assign({}, process.env, {
+    DEEZER_EAGLE_HOME: HOME,
+    DEEZER_EAGLE_DEEZER_PATH: path.dirname(process.execPath),
+  });
+  const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', CLI, ...cliArgs];
+  if (process.platform === 'win32') {
+    const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+    const argumentList = args.map((arg) => (arg === CLI ? `"${arg}"` : arg)).join(' ');
+    const command =
+      `Start-Process -FilePath powershell.exe -WindowStyle Hidden ` +
+      `-WorkingDirectory ${quote(HOME)} -ArgumentList ${quote(argumentList)}`;
+    execFileSync(SHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+      env,
+      windowsHide: true,
+      timeout: 20000,
+    });
+    return;
+  }
+  const output = fs.openSync(path.join(HOME, 'logs', logName), 'w');
+  const child = spawn(SHELL, args, { cwd: HOME, detached: true, stdio: ['ignore', output, output], env });
+  fs.closeSync(output);
+  child.on('error', (err) => log(`${cliArgs[0]} did not start:`, err.message));
+  child.unref();
 }
 
 let registryCache = null;
@@ -151,6 +187,8 @@ async function marketplace(query) {
       name: mod.name || mod.id,
       description: mod.description || '',
       author: mod.author || '',
+      type: mod.type === 'theme' ? 'theme' : 'mod',
+      colors: lib.themeColors(mod.colors),
     }));
   } catch (err) {
     result.errors.push(`Registry unavailable (${err.message})`);
@@ -206,15 +244,72 @@ function handle(channel, handler) {
 
 handle('list', () => lib.listMods(HOME));
 
+// Changes apply to network rules at once; the page applies CSS by itself.
 handle('set-enabled', (_event, id, enabled) => {
   assertModId(id);
   lib.setModEnabled(HOME, id, Boolean(enabled));
+  state = lib.loadState(HOME);
+});
+
+handle('set-theme', (_event, id) => {
+  if (id !== null) {
+    assertModId(id);
+    if (!state.mods.some((mod) => mod.id === id && lib.isTheme(mod))) throw new Error(`no theme "${id}"`);
+  }
+  lib.setTheme(HOME, id);
+  state = lib.loadState(HOME);
 });
 
 handle('remove', (_event, id) => {
   assertModId(id);
   lib.removeMod(HOME, id);
+  state = lib.loadState(HOME);
 });
+
+handle('settings', () => ({ version: VERSION, home: HOME, devtools: state.config.devtools === true }));
+
+handle('set-devtools', (_event, enabled) => {
+  lib.updateConfig(HOME, (config) => {
+    config.devtools = Boolean(enabled);
+  });
+  state = lib.loadState(HOME);
+});
+
+handle('open', (_event, what) => {
+  if (what === 'user-css') {
+    const file = path.join(HOME, 'user.css');
+    if (!fs.existsSync(file)) fs.writeFileSync(file, '/* Your own CSS, applied after every mod. */\n');
+    return shell.openPath(file);
+  }
+  if (what === 'folder') return shell.openPath(HOME);
+  throw new Error(`cannot open "${what}"`);
+});
+
+let updatesCache = null;
+
+// Latest versions of Eagle and of every mod installed from GitHub.
+async function checkUpdates() {
+  if (updatesCache && Date.now() - updatesCache.time < 30 * 60 * 1000) return updatesCache.value;
+  const value = { eagle: { current: VERSION, latest: null }, mods: {} };
+  const jobs = [
+    fetchText(`${REMOTE}/Snoxy008/Deezer-Eagle/main/VERSION`).then((latest) => {
+      value.eagle.latest = latest.trim();
+    }),
+  ];
+  for (const mod of lib.listMods(HOME)) {
+    if (!mod.source || mod.source.type !== 'github') continue;
+    jobs.push(
+      fetchJson(lib.remoteManifestUrl(REMOTE, mod.source)).then((manifest) => {
+        if (lib.compareVersions(manifest.version, mod.version) > 0) value.mods[mod.id] = String(manifest.version);
+      }),
+    );
+  }
+  await Promise.all(jobs.map((job) => job.catch(() => {})));
+  updatesCache = { time: Date.now(), value };
+  return value;
+}
+
+handle('check-updates', () => checkUpdates());
 
 handle('marketplace', (_event, query) => marketplace(typeof query === 'string' ? query.slice(0, 100) : ''));
 
@@ -232,7 +327,18 @@ handle('install', async (event, spec) => {
   return runCli(['install', spec, '-y', '--remote']);
 });
 
-handle('update', () => runCli(['update']));
+handle('update', async (_event, id) => {
+  if (id != null) assertModId(id);
+  const result = await runCli(id == null ? ['update'] : ['update', id]);
+  updatesCache = null;
+  return result;
+});
+
+// The upgrade re-patches and restarts Deezer, so it must outlive this process.
+handle('upgrade', () => {
+  log('upgrading Deezer Eagle from the library');
+  startDetached(['upgrade'], 'upgrade.log');
+});
 
 // ---- Deezer updates -------------------------------------------------------------
 
@@ -245,34 +351,8 @@ function scheduleReapplyAfterUpdate() {
     const pending = lib.pendingUpdateDir(process.resourcesPath, pkg.name || app.getName(), localAppData);
     if (!lib.hasPendingUpdate(pending)) return;
     log('a Deezer update is about to be installed, Eagle will patch it again afterwards');
-    const env = Object.assign({}, process.env, {
-      DEEZER_EAGLE_HOME: HOME,
-      DEEZER_EAGLE_DEEZER_PATH: path.dirname(process.execPath),
-    });
-    const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', CLI, 'reapply-after-update'];
-    if (process.platform === 'win32') {
-      // A detached console program gets no console on Windows and may never
-      // start: let PowerShell's Start-Process launch the watcher in its own
-      // hidden console, and wait for that (about a second) before quitting.
-      const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
-      const argumentList = args.map((arg) => (arg === CLI ? `"${arg}"` : arg)).join(' ');
-      const command =
-        `Start-Process -FilePath powershell.exe -WindowStyle Hidden ` +
-        `-WorkingDirectory ${quote(HOME)} -ArgumentList ${quote(argumentList)}`;
-      execFileSync(SHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
-        env,
-        windowsHide: true,
-        timeout: 20000,
-      });
-      log('post-update watcher started');
-      return;
-    }
-    const output = fs.openSync(path.join(HOME, 'logs', 'update-watcher.log'), 'w');
-    const child = spawn(SHELL, args, { cwd: HOME, detached: true, stdio: ['ignore', output, output], env });
-    fs.closeSync(output);
-    child.on('error', (err) => log('the post-update watcher did not start:', err.message));
-    child.unref();
-    log(`post-update watcher started (pid ${child.pid})`);
+    startDetached(['reapply-after-update'], 'update-watcher.log');
+    log('post-update watcher started');
   } catch (err) {
     log('could not schedule the post-update patch:', err && err.message);
   }

@@ -1,0 +1,23 @@
+{
+  "id": "catppuccin-mocha",
+  "type": "theme",
+  "name": "Catppuccin Mocha",
+  "version": "1.0.0",
+  "description": "Based on the Catppuccin Mocha palette (catppuccin.com).",
+  "author": "Snoxy008",
+  "dark": true,
+  "colors": {
+    "background": "#1e1e2e",
+    "surface": "#181825",
+    "surfaceHover": "#313244",
+    "text": "#cdd6f4",
+    "textSecondary": "#a6adc8",
+    "accent": "#cba6f7",
+    "accentHover": "#b4befe",
+    "onAccent": "#1e1e2e",
+    "border": "#45475a",
+    "error": "#f38ba8",
+    "success": "#a6e3a1",
+    "warning": "#fab387"
+  }
+}

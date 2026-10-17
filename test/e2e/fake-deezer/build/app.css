@@ -1,4 +1,7 @@
 :root {
+  --tempo-colors-background-neutral-primary-default: #fdfcfe;
+  --tempo-colors-text-neutral-primary-default: #0f0d13;
+  --tempo-colors-background-accent-primary-default: #a238ff;
   --color-bg-main: #fdfcfe;
   --color-bg-secondary: #f5f2f8;
   --color-text-main: #0f0d13;
@@ -40,4 +43,11 @@ body {
   right: 0;
   bottom: 0;
   height: 80px;
+}
+#page_content {
+  background: var(--tempo-colors-background-neutral-primary-default);
+  color: var(--tempo-colors-text-neutral-primary-default);
+}
+#icon-probe {
+  color: var(--tempo-colors-icon-neutral-primary-default);
 }

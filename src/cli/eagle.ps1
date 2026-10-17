@@ -95,7 +95,7 @@ function ConvertFrom-JsonDictionary([string]$Json) {
 # ---------------------------------------------------------------------------
 
 function Get-Config {
-    $config = [ordered]@{ disabled = @(); devtools = $false; deezerPath = '' }
+    $config = [ordered]@{ disabled = @(); devtools = $false; deezerPath = ''; theme = $null }
     $raw = $null
     try { $raw = Read-Json $script:ConfigFile } catch { Write-Warn 'config.json is unreadable, using defaults.' }
     if ($raw) {
@@ -479,8 +479,11 @@ function Get-Mods {
         if (-not $linked) {
             try { $source = Read-Json (Join-Path $dir.FullName '.eagle-source.json') } catch { }
         }
+        $type = 'mod'
+        if ($manifest.type -eq 'theme') { $type = 'theme' }
         $mods += [pscustomobject]@{
             Id = $dir.Name
+            Type = $type
             Name = [string]$manifest.name
             Version = [string]$manifest.version
             Description = [string]$manifest.description
@@ -660,13 +663,45 @@ function Invoke-List {
         Write-Host '  No mods installed. Find some with "eagle search".'
         return
     }
+    $theme = (Get-Config).theme
     $mods | ForEach-Object {
         $state = 'enabled'
         if (-not $_.Enabled) { $state = 'disabled' }
+        if ($_.Type -eq 'theme') {
+            $state = ''
+            if ($_.Id -eq $theme) { $state = 'active' }
+        }
         $origin = Format-Source $_.Source
         if ($_.Linked) { $origin = 'link (dev)' }
-        [pscustomobject]@{ ID = $_.Id; Name = $_.Name; Version = $_.Version; State = $state; Source = $origin }
+        [pscustomobject]@{ ID = $_.Id; Type = $_.Type; Name = $_.Name; Version = $_.Version; State = $state; Source = $origin }
     } | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+}
+
+function Invoke-Theme([string]$Id) {
+    $themes = @(Get-Mods | Where-Object { $_.Type -eq 'theme' })
+    $config = Get-Config
+    if (-not $Id) {
+        if ($themes.Count -eq 0) { Write-Host '  No themes installed. Find some with "eagle search theme".'; return }
+        foreach ($theme in $themes) {
+            $marker = '   '
+            if ($theme.Id -eq $config.theme) { $marker = ' * ' }
+            Write-Host ("  {0}{1,-20} {2}" -f $marker, $theme.Id, $theme.Name)
+        }
+        Write-Host '  Switch with: eagle theme <id>   (eagle theme none: Deezer''s own colours)' -ForegroundColor DarkGray
+        return
+    }
+    if ($Id -eq 'none' -or $Id -eq 'default') {
+        $config.theme = $null
+        Save-Config $config
+        Write-Ok 'Back to Deezer''s own colours.'
+    } else {
+        $theme = $themes | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
+        if (-not $theme) { throw "No theme ""$Id"" is installed (see: eagle theme)." }
+        $config.theme = $Id
+        Save-Config $config
+        Write-Ok "Theme: $($theme.Name)."
+    }
+    Write-Reload
 }
 
 function Invoke-Update([string[]]$Ids) {
@@ -908,7 +943,11 @@ function Invoke-Setup([string]$SourceDir, [bool]$NoApply) {
         Write-TextFile $script:UserCss "/* Your own CSS, applied after every mod. Open it with: eagle css */`n"
     }
 
-    # Built-in mods: installed on first install, refreshed on upgrade.
+    # Built-in mods and themes: installed versions are refreshed, and default
+    # ones are installed once (never again if the user removed them).
+    $config = Get-Config
+    $offered = @($config['installedDefaults'] | Where-Object { $_ })
+    if (-not $firstInstall -and -not $config.Contains('installedDefaults')) { $offered = @('adblock', 'no-tracking') }
     $registry = Read-Json (Join-Path $SourceDir 'registry.json')
     foreach ($entry in @($registry.mods)) {
         if ($entry.repo -ne $script:Repo) { continue }
@@ -920,15 +959,19 @@ function Invoke-Setup([string]$SourceDir, [bool]$NoApply) {
                 try { $source = Read-Json (Join-Path $installed '.eagle-source.json') } catch { }
                 $refresh = $source -and (Test-Official $source)
             }
-        } elseif ($firstInstall -and $entry.default) {
+        } elseif ($entry.default -and $offered -notcontains $entry.id) {
             $refresh = $true
         }
+        if ($entry.default -and $offered -notcontains $entry.id) { $offered += $entry.id }
         if ($refresh) {
             $source = [ordered]@{ type = 'github'; repo = $script:Repo; path = [string]$entry.path; ref = '' }
             $manifest = Install-ModFrom (Join-Path $SourceDir $entry.path) $source
-            Write-Ok "Mod $($manifest.name) $($manifest.version)"
+            Write-Ok "$($manifest.name) $($manifest.version)"
         }
     }
+    $config = Get-Config
+    $config['installedDefaults'] = $offered
+    Save-Config $config
 
     if (-not $NoApply) {
         try {
@@ -988,6 +1031,7 @@ function Show-Help {
     eagle enable <id>            enable a mod
     eagle disable <id>           disable a mod
     eagle update [id]            update mods from their source
+    eagle theme [id | none]      list themes or switch theme
 
   Making mods
     eagle new <id>               create a mod from the template and link it
@@ -1025,6 +1069,7 @@ function Invoke-Eagle([string[]]$Argv) {
         'enable' { Invoke-Toggle $values $true }
         'disable' { Invoke-Toggle $values $false }
         'update' { Invoke-Update $values }
+        'theme' { Invoke-Theme $values[0] }
         'new' { Invoke-New $values[0] }
         'link' { Invoke-Link $values[0] }
         'config' { Invoke-Config $values }

@@ -12,6 +12,11 @@ const DEEZER_HOST = /(^|\.)deezer\.com$/i;
 // What a page may ask to install: a registry id, or owner/repo[/path][@ref] on
 // GitHub. Local folders stay CLI-only.
 const INSTALL_SPEC = /^(?:[a-z0-9][a-z0-9_-]{0,63}|[A-Za-z0-9][\w-]*\/[\w.-]+(?:\/[\w./-]+)?(?:@[\w./-]+)?)$/;
+// The palette a theme declares in its manifest; Eagle derives everything else.
+const THEME_COLORS = ['background', 'surface', 'surfaceHover', 'text', 'textSecondary', 'accent', 'accentHover', 'onAccent', 'border', 'error', 'success', 'warning'];
+// One CSS value: no `;`, `{` or `}` that could escape the generated rule.
+const SAFE_COLOR = /^[#\w\s(),.%/-]{1,80}$/;
+const SETTING_TYPES = new Set(['toggle', 'text', 'number', 'select', 'color']);
 
 function readText(file) {
   return fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
@@ -65,7 +70,12 @@ function loadState(home) {
     if (!manifest || typeof manifest !== 'object') continue;
     mods.push({ id, dir, manifest, enabled: !disabled.has(id) });
   }
-  return { config, mods, rules: compileRules(mods.filter((mod) => mod.enabled)) };
+  const theme = mods.some((mod) => mod.id === config.theme && isTheme(mod)) ? config.theme : null;
+  return { config, mods, theme, rules: compileRules(mods.filter((mod) => mod.enabled && !isTheme(mod))) };
+}
+
+function isTheme(mod) {
+  return mod.manifest.type === 'theme';
 }
 
 // A rule is either a bare domain ("doubleclick.net", also matches subdomains)
@@ -161,16 +171,77 @@ function text(value) {
   return typeof value === 'string' ? value : '';
 }
 
+function themeColors(value) {
+  const colors = {};
+  if (!value || typeof value !== 'object') return colors;
+  for (const key of THEME_COLORS) {
+    if (typeof value[key] === 'string' && SAFE_COLOR.test(value[key].trim())) colors[key] = value[key].trim();
+  }
+  return colors;
+}
+
+// Settings a mod declares; the library renders them and mod.settings reads them.
+function modSettings(value) {
+  const number = (input) => (typeof input === 'number' && Number.isFinite(input) ? input : null);
+  return toList(value)
+    .filter((setting) => setting && typeof setting === 'object' && /^[\w-]{1,64}$/.test(setting.key) && SETTING_TYPES.has(setting.type))
+    .map((setting) => ({
+      key: setting.key,
+      type: setting.type,
+      label: text(setting.label) || setting.key,
+      description: text(setting.description),
+      default: setting.default === undefined ? null : setting.default,
+      min: number(setting.min),
+      max: number(setting.max),
+      step: number(setting.step),
+      options:
+        setting.type === 'select'
+          ? toList(setting.options)
+              .filter((option) => option && ['string', 'number'].includes(typeof option.value))
+              .map((option) => ({ value: option.value, label: text(option.label) || String(option.value) }))
+          : null,
+    }));
+}
+
+function readStyles(mod) {
+  return toList(mod.manifest.styles)
+    .map((file) => readText(resolveInside(mod.dir, file)))
+    .join('\n');
+}
+
 function modInfo(mod) {
   const manifest = mod.manifest;
-  return {
+  const info = {
     id: mod.id,
     name: text(manifest.name) || mod.id,
     version: text(manifest.version),
     description: text(manifest.description),
     author: text(manifest.author),
     enabled: mod.enabled,
+    type: isTheme(mod) ? 'theme' : 'mod',
+    hasScript: Boolean(manifest.main),
+    settings: modSettings(manifest.settings),
   };
+  if (isTheme(mod)) {
+    info.colors = themeColors(manifest.colors);
+    info.dark = Boolean(manifest.dark);
+  }
+  return info;
+}
+
+// Themes and CSS-only mods carry their CSS so the page can switch them
+// without reloading; mods with a script get one injected script each.
+function pageInfo(mod) {
+  const info = modInfo(mod);
+  if (isTheme(mod) || !info.hasScript) {
+    try {
+      info.css = readStyles(mod);
+    } catch (err) {
+      info.css = '';
+      info.error = String(err.message);
+    }
+  }
+  return info;
 }
 
 function failScript(id, err) {
@@ -181,7 +252,12 @@ function failScript(id, err) {
 // Builds the scripts injected into a Deezer page, in order: the runtime, one
 // script per enabled mod (so a syntax error only breaks that mod), then user.css.
 function buildScripts(home, state, version) {
-  const boot = { version, mods: state.mods.map(modInfo) };
+  const boot = {
+    version,
+    mods: state.mods.filter((mod) => !isTheme(mod)).map(pageInfo),
+    themes: state.mods.filter(isTheme).map(pageInfo),
+    theme: state.theme,
+  };
   const client = readText(path.join(home, 'core', 'client.js'));
   const scripts = [
     {
@@ -190,14 +266,12 @@ function buildScripts(home, state, version) {
     },
   ];
   for (const mod of state.mods) {
-    if (!mod.enabled) continue;
+    if (!mod.enabled || isTheme(mod) || !mod.manifest.main) continue;
     try {
       const manifest = mod.manifest;
-      const css = toList(manifest.styles)
-        .map((file) => readText(resolveInside(mod.dir, file)))
-        .join('\n');
-      const js = manifest.main ? readText(resolveInside(mod.dir, manifest.main)) : '';
-      const file = String(manifest.main || 'manifest.json').replace(/[^\w./-]/g, '_');
+      const css = readStyles(mod);
+      const js = readText(resolveInside(mod.dir, manifest.main));
+      const file = String(manifest.main).replace(/[^\w./-]/g, '_');
       const url = `eagle://mods/${mod.id}/${file}`;
       // The mod's first line shares the wrapper's line so error line numbers match its file.
       const code =
@@ -257,13 +331,41 @@ function listMods(home) {
   });
 }
 
-function setModEnabled(home, id, enabled) {
+function updateConfig(home, change) {
   const file = path.join(home, 'config.json');
   const config = readJson(file, null) || {};
-  const disabled = toList(config.disabled).filter((other) => other !== id);
-  if (!enabled) disabled.push(id);
-  config.disabled = disabled;
+  change(config);
   fs.writeFileSync(file, JSON.stringify(config, null, 2));
+}
+
+function setModEnabled(home, id, enabled) {
+  updateConfig(home, (config) => {
+    config.disabled = toList(config.disabled).filter((other) => other !== id);
+    if (!enabled) config.disabled.push(id);
+  });
+}
+
+// One theme at a time; null goes back to Deezer's own colours.
+function setTheme(home, id) {
+  updateConfig(home, (config) => {
+    config.theme = id || null;
+  });
+}
+
+// 1.10.0 > 1.9.2; missing parts count as 0 and pre-release tags are ignored.
+function compareVersions(a, b) {
+  const parts = (version) => String(version || '').split(/[.+-]/).slice(0, 3).map((part) => parseInt(part, 10) || 0);
+  const [left, right] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i++) {
+    if ((left[i] || 0) !== (right[i] || 0)) return (left[i] || 0) > (right[i] || 0) ? 1 : -1;
+  }
+  return 0;
+}
+
+// Where a GitHub-installed mod's current manifest lives.
+function remoteManifestUrl(base, source) {
+  const folder = source.path ? `${String(source.path).replace(/^\/+|\/+$/g, '')}/` : '';
+  return `${base}/${source.repo}/${source.ref || 'HEAD'}/${folder}manifest.json`;
 }
 
 // Removes an installed mod. A linked dev mod only loses its link, never its files.
@@ -279,7 +381,10 @@ function removeMod(home, id) {
   } else {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  setModEnabled(home, id, true);
+  updateConfig(home, (config) => {
+    config.disabled = toList(config.disabled).filter((other) => other !== id);
+    if (config.theme === id) config.theme = null;
+  });
 }
 
 function isInstallSpec(spec) {
@@ -317,6 +422,13 @@ function hasPendingUpdate(dir) {
 
 module.exports = {
   MOD_ID,
+  isTheme,
+  themeColors,
+  modSettings,
+  setTheme,
+  updateConfig,
+  compareVersions,
+  remoteManifestUrl,
   isAppUrl,
   listMods,
   setModEnabled,

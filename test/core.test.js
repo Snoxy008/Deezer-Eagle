@@ -206,6 +206,15 @@ test('buildScripts runs mods against the client runtime', () => {
     }
   };
   window.setTimeout = () => 0;
+  window.setInterval = () => 0;
+  window.getComputedStyle = () => ({ length: 0 });
+  window.MutationObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  window.document.styleSheets = [];
+  window.document.querySelector = () => null;
+  window.document.querySelectorAll = () => [];
   const context = vm.createContext(window);
   for (const script of lib.buildScripts(home, lib.loadState(home), '1.0.0')) {
     vm.runInContext(script.code, context);
@@ -230,6 +239,11 @@ test('built-in mods have valid manifests and registry entries', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
     assert.equal(manifest.id, entry.id);
     assert.ok(manifest.name && manifest.version);
+    assert.equal(manifest.type === 'theme', entry.type === 'theme', `${entry.id}: registry and manifest agree on the type`);
+    if (manifest.type === 'theme') {
+      assert.deepEqual(lib.themeColors(manifest.colors), manifest.colors, `${entry.id}: every colour is valid`);
+      for (const key of ['background', 'text', 'accent']) assert.ok(manifest.colors[key], `${entry.id}: ${key}`);
+    }
     for (const file of [manifest.main, ...(manifest.styles || [])].filter(Boolean)) {
       assert.ok(fs.existsSync(lib.resolveInside(dir, file)), `${entry.id}: ${file}`);
     }
@@ -309,4 +323,84 @@ test('pending Deezer updates are found in the electron-updater cache', () => {
   assert.ok(!lib.hasPendingUpdate(pending), 'no installer yet');
   fs.writeFileSync(path.join(pending, 'DeezerDesktopSetup_7.1.341.exe'), '');
   assert.ok(lib.hasPendingUpdate(pending));
+});
+
+test('themes and CSS-only mods reach the page as data, not as scripts', () => {
+  const home = makeHome(
+    {
+      nord: {
+        'manifest.json': {
+          id: 'nord',
+          type: 'theme',
+          name: 'Nord',
+          version: '1.0.0',
+          dark: true,
+          colors: { background: '#2e3440', accent: 'rgb(136, 192, 208)', text: 'red; } body { display: none' },
+          styles: ['extra.css'],
+        },
+        'extra.css': '.extra{}',
+      },
+      sober: { 'manifest.json': { id: 'sober', type: 'theme', name: 'Sober', version: '1.0.0', network: { block: ['theme.example'] } } },
+      plain: { 'manifest.json': { id: 'plain', name: 'Plain', version: '1.0.0', styles: ['a.css'], network: { block: ['css.example'] } }, 'a.css': '.a{}' },
+      scripted: {
+        'manifest.json': {
+          id: 'scripted',
+          name: 'Scripted',
+          version: '1.0.0',
+          main: 'mod.js',
+          settings: [
+            { key: 'step', type: 'number', label: 'Step', default: 5, min: 1 },
+            { key: 'mode', type: 'select', default: 'a', options: [{ value: 'a', label: 'A' }, { value: {} }, 'b'] },
+            { key: 'bad key', type: 'number' },
+            { key: 'kind', type: 'unknown' },
+          ],
+        },
+        'mod.js': '',
+      },
+    },
+    { theme: 'nord' },
+  );
+  const state = lib.loadState(home);
+  assert.equal(state.theme, 'nord');
+  assert.ok(lib.isBlocked(state.rules, 'https://css.example/'));
+  assert.ok(!lib.isBlocked(state.rules, 'https://theme.example/'), 'themes cannot block requests');
+
+  const scripts = lib.buildScripts(home, state, '1.0.0');
+  assert.deepEqual(scripts.map((script) => script.id), [null, 'scripted'], 'only mods with a script get one');
+  const boot = JSON.parse(/window.__EAGLE_BOOT__ = (.*);\n/.exec(scripts[0].code)[1]);
+  assert.equal(boot.theme, 'nord');
+  assert.deepEqual(boot.themes.map((theme) => theme.id), ['nord', 'sober']);
+  assert.deepEqual(boot.themes[0].colors, { background: '#2e3440', accent: 'rgb(136, 192, 208)' }, 'unsafe colours are dropped');
+  assert.equal(boot.themes[0].css, '.extra{}');
+  assert.equal(boot.themes[0].dark, true);
+  const plain = boot.mods.find((mod) => mod.id === 'plain');
+  assert.deepEqual([plain.css, plain.hasScript, plain.type], ['.a{}', false, 'mod']);
+  const scripted = boot.mods.find((mod) => mod.id === 'scripted');
+  assert.equal(scripted.css, undefined);
+  assert.deepEqual(scripted.settings.map((setting) => setting.key), ['step', 'mode']);
+  assert.deepEqual([scripted.settings[0].min, scripted.settings[0].max], [1, null]);
+  assert.deepEqual(scripted.settings[1].options, [{ value: 'a', label: 'A' }]);
+  assert.equal(scripted.settings[1].label, 'mode', 'the key is the default label');
+});
+
+test('the selected theme survives only while it is installed', () => {
+  const home = makeHome({ nord: { 'manifest.json': { id: 'nord', type: 'theme', name: 'Nord', version: '1.0.0' } } }, { theme: 'gone' });
+  assert.equal(lib.loadState(home).theme, null, 'unknown theme: Deezer colours');
+  lib.setTheme(home, 'nord');
+  assert.equal(lib.loadState(home).theme, 'nord');
+  lib.removeMod(home, 'nord');
+  assert.equal(lib.readJson(path.join(home, 'config.json')).theme, null, 'removing the theme resets it');
+});
+
+test('versions compare numerically and updates are read from raw manifests', () => {
+  assert.equal(lib.compareVersions('1.10.0', '1.9.2'), 1);
+  assert.equal(lib.compareVersions('2.0.0', '10.0.0'), -1);
+  assert.equal(lib.compareVersions('1.0', '1.0.0'), 0);
+  assert.equal(lib.compareVersions('1.2.0-beta', '1.2.0'), 0);
+  assert.equal(lib.compareVersions(undefined, '0.0.1'), -1);
+  assert.equal(
+    lib.remoteManifestUrl('https://raw.githubusercontent.com', { repo: 'someone/mods', path: '/themes/dark/', ref: '' }),
+    'https://raw.githubusercontent.com/someone/mods/HEAD/themes/dark/manifest.json',
+  );
+  assert.equal(lib.remoteManifestUrl('http://raw.test', { repo: 'a/b', ref: 'v1' }), 'http://raw.test/a/b/v1/manifest.json');
 });

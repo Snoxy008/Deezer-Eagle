@@ -264,15 +264,51 @@ Check 'setup installs the CLI, default mods and the shim' {
     foreach ($file in @('cli/eagle.ps1', 'core/main.js', 'core/stub/index.js', 'template/manifest.json', 'bin/eagle.cmd', 'VERSION', 'config.json', 'user.css')) {
         Assert-True (Test-Path (Join-Path $fresh $file)) $file
     }
-    Assert-True (Test-Path (Join-Path $fresh 'mods/adblock/manifest.json')) 'adblock installed'
-    Assert-True (Test-Path (Join-Path $fresh 'mods/no-tracking/manifest.json')) 'no-tracking installed'
+    foreach ($id in @('adblock', 'no-tracking', 'volume-wheel', 'midnight', 'nord', 'rose-pine-dawn')) {
+        Assert-True (Test-Path (Join-Path $fresh "mods/$id/manifest.json")) "$id installed by default"
+    }
     Assert-True (-not (Test-Path (Join-Path $fresh 'mods/copy-link'))) 'optional mod not installed'
+    $offered = @((Read-Json (Join-Path $fresh 'config.json')).installedDefaults)
+    Assert-True ($offered -contains 'nord' -and $offered -contains 'adblock') 'defaults remembered'
     $source = Read-Json (Join-Path $fresh 'mods/adblock/.eagle-source.json')
     Assert-Equal 'Snoxy008/Deezer-Eagle' $source.repo 'built-in source'
     & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $fresh 'cli/eagle.ps1') version | Out-Null
     Assert-Equal 0 $LASTEXITCODE 'installed CLI runs'
     & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $fresh 'cli/eagle.ps1') nope 2>&1 | Out-Null
     Assert-Equal 1 $LASTEXITCODE 'unknown command fails'
+}
+
+Check 'upgrading from 0.2 adds the new defaults but not removed ones' {
+    $env:DEEZER_EAGLE_HOME = Join-Path $tmp 'old'
+    $old = $env:DEEZER_EAGLE_HOME
+    New-Item -ItemType Directory -Force -Path (Join-Path $old 'mods') | Out-Null
+    Write-TextFile (Join-Path $old 'config.json') '{"disabled":[],"devtools":false,"deezerPath":""}'
+    $shell = (Get-Process -Id $PID).Path
+    & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'src/cli/eagle.ps1') setup $root --no-apply | Out-Null
+    Assert-Equal 0 $LASTEXITCODE 'exit code'
+    Assert-True (-not (Test-Path (Join-Path $old 'mods/adblock'))) 'adblock was removed by the user: stays removed'
+    Assert-True (Test-Path (Join-Path $old 'mods/nord/manifest.json')) 'new default theme installed'
+    Assert-True (Test-Path (Join-Path $old 'mods/volume-wheel/manifest.json')) 'new default mod installed'
+    Remove-Item -LiteralPath (Join-Path $old 'mods/nord') -Recurse -Force
+    & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'src/cli/eagle.ps1') setup $root --no-apply | Out-Null
+    Assert-True (-not (Test-Path (Join-Path $old 'mods/nord'))) 'a removed default is not installed again'
+}
+
+Check 'theme lists and switches themes' {
+    $env:DEEZER_EAGLE_HOME = Join-Path $tmp 'fresh'
+    $script:EagleHome = $env:DEEZER_EAGLE_HOME
+    $script:ModsDir = Join-Path $script:EagleHome 'mods'
+    $script:ConfigFile = Join-Path $script:EagleHome 'config.json'
+    Invoke-Theme ''
+    Invoke-Theme 'nord'
+    Assert-Equal 'nord' (Get-Config).theme 'theme set'
+    Assert-Equal 'theme' (Get-Mod 'nord').Type 'type read from the manifest'
+    Assert-Equal 'mod' (Get-Mod 'adblock').Type 'mods are mods'
+    $failed = $false
+    try { Invoke-Theme 'adblock' } catch { $failed = $true }
+    Assert-True $failed 'a mod is not a theme'
+    Invoke-Theme 'none'
+    Assert-True ($null -eq (Get-Config).theme) 'back to Deezer colours'
 }
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

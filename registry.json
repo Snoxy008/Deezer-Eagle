@@ -26,6 +26,127 @@
       "author": "Snoxy008",
       "repo": "Snoxy008/Deezer-Eagle",
       "path": "mods/copy-link"
+    },
+    {
+      "id": "volume-wheel",
+      "name": "Volume Wheel",
+      "description": "Scroll on the volume button to turn the volume up or down.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/volume-wheel",
+      "default": true
+    },
+    {
+      "id": "media-shortcuts",
+      "name": "Media Shortcuts",
+      "description": "Ctrl+Alt shortcuts to play, pause, skip and change the volume.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/media-shortcuts"
+    },
+    {
+      "id": "sleep-timer",
+      "name": "Sleep Timer",
+      "description": "Stops the music after a while, with a gentle fade-out.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/sleep-timer"
+    },
+    {
+      "id": "no-offline-banner",
+      "name": "No Offline Banner",
+      "description": "Hides the \"application is offline\" banner that blockers and VPNs can trigger.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/no-offline-banner"
+    },
+    {
+      "id": "hide-upsell",
+      "name": "Hide Upsell",
+      "description": "Experimental: hides the \"go Premium\" promotions in the sidebar.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "mods/hide-upsell"
+    },
+    {
+      "id": "midnight",
+      "name": "Midnight",
+      "description": "Pure black for OLED screens, with Deezer purple.",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "themes/midnight",
+      "type": "theme",
+      "colors": {
+        "background": "#000000",
+        "surface": "#0d0d12",
+        "text": "#f2f2f7",
+        "accent": "#a238ff"
+      },
+      "default": true
+    },
+    {
+      "id": "dracula",
+      "name": "Dracula",
+      "description": "Based on the Dracula palette (draculatheme.com).",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "themes/dracula",
+      "type": "theme",
+      "colors": {
+        "background": "#282a36",
+        "surface": "#21222c",
+        "text": "#f8f8f2",
+        "accent": "#bd93f9"
+      },
+      "default": true
+    },
+    {
+      "id": "nord",
+      "name": "Nord",
+      "description": "Based on the Nord palette (nordtheme.com).",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "themes/nord",
+      "type": "theme",
+      "colors": {
+        "background": "#2e3440",
+        "surface": "#3b4252",
+        "text": "#eceff4",
+        "accent": "#88c0d0"
+      },
+      "default": true
+    },
+    {
+      "id": "catppuccin-mocha",
+      "name": "Catppuccin Mocha",
+      "description": "Based on the Catppuccin Mocha palette (catppuccin.com).",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "themes/catppuccin-mocha",
+      "type": "theme",
+      "colors": {
+        "background": "#1e1e2e",
+        "surface": "#181825",
+        "text": "#cdd6f4",
+        "accent": "#cba6f7"
+      },
+      "default": true
+    },
+    {
+      "id": "rose-pine-dawn",
+      "name": "Rosé Pine Dawn",
+      "description": "A soft light theme, based on the Rosé Pine Dawn palette (rosepinetheme.com).",
+      "author": "Snoxy008",
+      "repo": "Snoxy008/Deezer-Eagle",
+      "path": "themes/rose-pine-dawn",
+      "type": "theme",
+      "colors": {
+        "background": "#faf4ed",
+        "surface": "#fffaf3",
+        "text": "#575279",
+        "accent": "#d7827e"
+      },
+      "default": true
     }
   ]
 }

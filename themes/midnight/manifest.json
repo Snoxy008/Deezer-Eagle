@@ -1,0 +1,20 @@
+{
+  "id": "midnight",
+  "type": "theme",
+  "name": "Midnight",
+  "version": "1.0.0",
+  "description": "Pure black for OLED screens, with Deezer purple.",
+  "author": "Snoxy008",
+  "dark": true,
+  "colors": {
+    "background": "#000000",
+    "surface": "#0d0d12",
+    "surfaceHover": "#1a1a22",
+    "text": "#f2f2f7",
+    "textSecondary": "#9b9ba8",
+    "accent": "#a238ff",
+    "accentHover": "#b45cff",
+    "onAccent": "#ffffff",
+    "border": "#26262f"
+  }
+}

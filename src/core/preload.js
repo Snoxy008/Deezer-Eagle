@@ -19,10 +19,16 @@ if (window.top === window && isDeezerPage()) {
   const bridge = {
     list: call('list'),
     setEnabled: call('set-enabled'),
+    setTheme: call('set-theme'),
     remove: call('remove'),
     marketplace: call('marketplace'),
     install: call('install'),
     update: call('update'),
+    checkUpdates: call('check-updates'),
+    upgrade: call('upgrade'),
+    settings: call('settings'),
+    setDevtools: call('set-devtools'),
+    open: call('open'),
   };
   if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('EagleBridge', bridge);

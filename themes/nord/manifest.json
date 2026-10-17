@@ -1,0 +1,23 @@
+{
+  "id": "nord",
+  "type": "theme",
+  "name": "Nord",
+  "version": "1.0.0",
+  "description": "Based on the Nord palette (nordtheme.com).",
+  "author": "Snoxy008",
+  "dark": true,
+  "colors": {
+    "background": "#2e3440",
+    "surface": "#3b4252",
+    "surfaceHover": "#434c5e",
+    "text": "#eceff4",
+    "textSecondary": "#c2cad8",
+    "accent": "#88c0d0",
+    "accentHover": "#8fbcbb",
+    "onAccent": "#2e3440",
+    "border": "#4c566a",
+    "error": "#bf616a",
+    "success": "#a3be8c",
+    "warning": "#ebcb8b"
+  }
+}

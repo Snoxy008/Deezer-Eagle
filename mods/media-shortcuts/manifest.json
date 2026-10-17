@@ -1,0 +1,26 @@
+{
+  "id": "media-shortcuts",
+  "name": "Media Shortcuts",
+  "version": "1.0.0",
+  "description": "Ctrl+Alt+Space plays or pauses, Ctrl+Alt+Left/Right changes track, Ctrl+Alt+Up/Down changes the volume.",
+  "author": "Snoxy008",
+  "main": "mod.js",
+  "settings": [
+    {
+      "key": "step",
+      "type": "number",
+      "label": "Volume step",
+      "description": "In percent, for Ctrl+Alt+Up and Ctrl+Alt+Down.",
+      "default": 10,
+      "min": 1,
+      "max": 50
+    },
+    {
+      "key": "notify",
+      "type": "toggle",
+      "label": "Show what happened",
+      "description": "A short notification after each shortcut.",
+      "default": true
+    }
+  ]
+}

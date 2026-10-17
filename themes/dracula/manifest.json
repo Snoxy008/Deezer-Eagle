@@ -1,0 +1,23 @@
+{
+  "id": "dracula",
+  "type": "theme",
+  "name": "Dracula",
+  "version": "1.0.0",
+  "description": "Based on the Dracula palette (draculatheme.com).",
+  "author": "Snoxy008",
+  "dark": true,
+  "colors": {
+    "background": "#282a36",
+    "surface": "#21222c",
+    "surfaceHover": "#44475a",
+    "text": "#f8f8f2",
+    "textSecondary": "#b4b6c9",
+    "accent": "#bd93f9",
+    "accentHover": "#ff79c6",
+    "onAccent": "#282a36",
+    "border": "#44475a",
+    "error": "#ff5555",
+    "success": "#50fa7b",
+    "warning": "#ffb86c"
+  }
+}

@@ -23,10 +23,13 @@ dialog.showMessageBox = async (...args) => {
 };
 
 const hits = [];
+// raw.e2e.test stands in for raw.githubusercontent.com: everything has a v9.9.9.
 const server = http.createServer((req, res) => {
   hits.push(`${req.headers.host}${req.url}`);
   res.setHeader('access-control-allow-origin', '*');
-  res.end('ok');
+  if (req.headers.host === 'raw.e2e.test' && req.url.endsWith('/manifest.json')) return res.end('{"version": "9.9.9"}');
+  if (req.headers.host === 'raw.e2e.test' && req.url.endsWith('/VERSION')) return res.end('9.9.9\n');
+  return res.end('ok');
 });
 
 app.whenReady().then(async () => {

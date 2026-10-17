@@ -1,0 +1,23 @@
+{
+  "id": "rose-pine-dawn",
+  "type": "theme",
+  "name": "Rosé Pine Dawn",
+  "version": "1.0.0",
+  "description": "A soft light theme, based on the Rosé Pine Dawn palette (rosepinetheme.com).",
+  "author": "Snoxy008",
+  "dark": false,
+  "colors": {
+    "background": "#faf4ed",
+    "surface": "#fffaf3",
+    "surfaceHover": "#f2e9e1",
+    "text": "#575279",
+    "textSecondary": "#797593",
+    "accent": "#d7827e",
+    "accentHover": "#b4637a",
+    "onAccent": "#fffaf3",
+    "border": "#dfdad9",
+    "error": "#b4637a",
+    "success": "#286983",
+    "warning": "#ea9d34"
+  }
+}

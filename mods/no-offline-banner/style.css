@@ -1,0 +1,3 @@
+.alert-wrapper:has(> div[data-testid="alert-AppOffline"]) {
+  display: none !important;
+}
