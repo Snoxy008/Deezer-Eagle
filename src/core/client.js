@@ -436,7 +436,13 @@
     const collect = (style) => {
       for (let i = 0; i < style.length; i++) if (style[i].startsWith(TEMPO)) names.add(style[i]);
     };
-    for (const target of [document.documentElement, document.body]) if (target) collect(getComputedStyle(target));
+    // Older Chromium does not list custom properties in computed styles, so
+    // also read the inline styles the app sets at runtime.
+    for (const target of [document.documentElement, document.body]) {
+      if (!target) continue;
+      collect(getComputedStyle(target));
+      collect(target.style);
+    }
     for (const sheet of Array.from(document.styleSheets)) {
       const rules = safely(() => Array.from(sheet.cssRules), []);
       rules.forEach((rule) => rule.style && collect(rule.style));

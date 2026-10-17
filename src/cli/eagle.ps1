@@ -141,19 +141,30 @@ function Read-AsarHeader([string]$Path) {
     }
 }
 
-function Read-AsarEntry([string]$Path, [string]$Name) {
-    $header = Read-AsarHeader $Path
-    $node = ConvertFrom-JsonDictionary $header.Json
+# A key of a parsed header node, or $null: on Windows PowerShell 5.1 the nodes
+# are .NET dictionaries, which may throw on a missing key.
+function Get-Key($Node, [string]$Key) {
+    if ($Node -and $Node.Keys -contains $Key) { return $Node[$Key] }
+    return $null
+}
+
+# Finds a file or folder in a parsed header ("build/main.js"), or $null.
+function Get-AsarNode($Tree, [string]$Name) {
+    $node = $Tree
     foreach ($part in $Name.Split('/')) {
-        $files = $node['files']
-        if (-not $files -or -not ($files.Keys -contains $part)) { throw "$Name not found in $Path" }
+        $files = Get-Key $node 'files'
+        if (-not $files -or -not ($files.Keys -contains $part)) { return $null }
         $node = $files[$part]
     }
-    $offset = [int64]$node['offset']
-    $size = [int]$node['size']
+    return $node
+}
+
+function Read-AsarBytes([string]$Path, [int64]$DataOffset, $Node) {
+    $offset = [int64]$Node['offset']
+    $size = [int]$Node['size']
     $stream = Open-SharedRead $Path
     try {
-        [void]$stream.Seek($header.DataOffset + $offset, [IO.SeekOrigin]::Begin)
+        [void]$stream.Seek($DataOffset + $offset, [IO.SeekOrigin]::Begin)
         $buffer = New-Object byte[] $size
         $read = 0
         while ($read -lt $size) {
@@ -167,37 +178,102 @@ function Read-AsarEntry([string]$Path, [string]$Name) {
     }
 }
 
-# Writes a flat archive from an ordered dictionary of name -> byte[].
-function Write-Asar([string]$Path, $Files) {
-    $entries = @()
-    $offset = 0
-    foreach ($name in $Files.Keys) {
-        $entries += '"{0}":{{"size":{1},"offset":"{2}"}}' -f $name, $Files[$name].Length, $offset
-        $offset += $Files[$name].Length
-    }
-    $json = $script:Utf8.GetBytes('{"files":{' + ($entries -join ',') + '}}')
-    $padding = (4 - ($json.Length % 4)) % 4
-    $payloadSize = 4 + $json.Length + $padding
-    $stream = [IO.File]::Open($Path, [IO.FileMode]::Create)
-    try {
-        $writer = New-Object IO.BinaryWriter $stream
-        $writer.Write([uint32]4)
-        $writer.Write([uint32](4 + $payloadSize))
-        $writer.Write([uint32]$payloadSize)
-        $writer.Write([int32]$json.Length)
-        $writer.Write($json)
-        $writer.Write((New-Object byte[] $padding))
-        foreach ($name in $Files.Keys) { $writer.Write([byte[]]$Files[$name]) }
-        $writer.Flush()
-    } finally {
-        $stream.Dispose()
-    }
+function Read-AsarEntry([string]$Path, [string]$Name) {
+    $header = Read-AsarHeader $Path
+    $node = Get-AsarNode (ConvertFrom-JsonDictionary $header.Json) $Name
+    if ($null -eq (Get-Key $node 'offset')) { throw "$Name not found in $Path" }
+    return , (Read-AsarBytes $Path $header.DataOffset $node)
 }
 
-function Test-EagleStub([string]$Asar) {
-    if (-not (Test-Path -LiteralPath $Asar -PathType Leaf)) { return $false }
-    if ((Get-Item -LiteralPath $Asar).Length -gt 1MB) { return $false }
-    try { return (Read-AsarHeader $Asar).Json.Contains('"eagle.json"') } catch { return $false }
+# The header of an archive: the size pickle, then the pickle holding the JSON.
+function ConvertTo-AsarHeaderBytes([string]$Json) {
+    $bytes = $script:Utf8.GetBytes($Json)
+    $padding = (4 - ($bytes.Length % 4)) % 4
+    $payloadSize = 4 + $bytes.Length + $padding
+    $stream = New-Object IO.MemoryStream
+    $writer = New-Object IO.BinaryWriter $stream
+    $writer.Write([uint32]4)
+    $writer.Write([uint32](4 + $payloadSize))
+    $writer.Write([uint32]$payloadSize)
+    $writer.Write([int32]$bytes.Length)
+    $writer.Write($bytes)
+    $writer.Write((New-Object byte[] $padding))
+    $writer.Flush()
+    return , $stream.ToArray()
+}
+
+# The "integrity" Electron can check: SHA-256 of the file and of 4 MB blocks.
+function Get-AsarIntegrity([byte[]]$Bytes) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $hex = { param([byte[]]$Hash) [BitConverter]::ToString($Hash).Replace('-', '').ToLowerInvariant() }
+    $blockSize = 4MB
+    $blocks = @()
+    for ($start = 0; $start -lt $Bytes.Length; $start += $blockSize) {
+        $blocks += '"' + (& $hex ($sha.ComputeHash($Bytes, $start, [Math]::Min($blockSize, $Bytes.Length - $start)))) + '"'
+    }
+    return '{{"algorithm":"SHA256","hash":"{0}","blockSize":{1},"blocks":[{2}]}}' -f (& $hex ($sha.ComputeHash($Bytes))), $blockSize, ($blocks -join ',')
+}
+
+# Index of the "}" closing the JSON object that starts at $Start.
+function Get-JsonObjectEnd([string]$Json, [int]$Start) {
+    $depth = 0
+    $inString = $false
+    for ($i = $Start; $i -lt $Json.Length; $i++) {
+        $char = $Json[$i]
+        if ($inString) {
+            if ($char -eq '\') { $i++ } elseif ($char -eq '"') { $inString = $false }
+        } elseif ($char -eq '"') {
+            $inString = $true
+        } elseif ($char -eq '{') {
+            $depth++
+        } elseif ($char -eq '}') {
+            $depth--
+            if ($depth -eq 0) { return $i }
+        }
+    }
+    throw 'Invalid asar header.'
+}
+
+# Swaps the header entry of one file (found by name and offset) for $EntryJson,
+# leaving the rest of the header text untouched.
+function Set-AsarEntryJson([string]$Json, [string]$Name, [string]$Offset, [string]$EntryJson) {
+    foreach ($match in [regex]::Matches($Json, '"' + [regex]::Escape($Name) + '"\s*:\s*\{')) {
+        $start = $match.Index + $match.Length - 1
+        $end = Get-JsonObjectEnd $Json $start
+        $object = $Json.Substring($start, $end - $start + 1)
+        if ($object -match '^\{\s*"files"' -or $object -notmatch ('"offset"\s*:\s*"' + $Offset + '"')) { continue }
+        return $Json.Substring(0, $start) + $EntryJson + $Json.Substring($end + 1)
+    }
+    throw "$Name was not found in the archive header."
+}
+
+function Add-AsarRootEntryJson([string]$Json, [string]$Name, [string]$EntryJson) {
+    $match = [regex]::Match($Json, '^\{\s*"files"\s*:\s*\{')
+    if (-not $match.Success) { throw 'Unexpected asar header.' }
+    $rest = $Json.Substring($match.Length)
+    $separator = ','
+    if ($rest -match '^\s*\}') { $separator = '' }
+    return $Json.Substring(0, $match.Length) + '"' + $Name + '":' + $EntryJson + $separator + $rest
+}
+
+$script:LoaderMarker = '/* Deezer Eagle loader'
+
+# Puts the loader at the top of Deezer's entry script: after a BOM, a #! line,
+# leading comments and a "use strict" directive, which must stay first.
+function Add-EagleLoader([string]$Code, [string]$Loader) {
+    $match = [regex]::Match($Code, '^﻿?(?:#![^\n]*\n)?(?:\s+|//[^\n]*(?:\n|$)|/\*[\s\S]*?\*/)*(?:([''"])use strict\1;?)?')
+    return $Code.Substring(0, $match.Length) + "`n" + $Loader.Trim() + "`n" + $Code.Substring($match.Length)
+}
+
+function Get-PatchState([string]$Asar) {
+    if (-not (Test-Path -LiteralPath $Asar -PathType Leaf)) { return 'missing' }
+    try { $header = Read-AsarHeader $Asar } catch { return 'invalid' }
+    if (-not $header.Json.Contains('"eagle.json"')) { return 'original' }
+    try { $files = Get-Key (ConvertFrom-JsonDictionary $header.Json) 'files' } catch { return 'invalid' }
+    if (-not $files) { return 'invalid' }
+    if ($files.Keys -contains 'eagle-stub.js') { return 'legacy' }
+    if ($files.Keys -contains 'eagle.json') { return 'patched' }
+    return 'original'
 }
 
 # Electron fuses live right after a sentinel string in the executable:
@@ -306,67 +382,126 @@ function Get-PatchPaths([string]$Dir) {
     return [pscustomobject]@{
         Asar = Join-Path $resources 'app.asar'
         Unpacked = Join-Path $resources 'app.asar.unpacked'
-        Original = Join-Path $resources '_app.asar'
-        OriginalUnpacked = Join-Path $resources '_app.asar.unpacked'
+        Building = Join-Path $resources 'app.asar.eagle'
+        Backup = Join-Path $script:EagleHome 'backup/app.asar'
+        # Before 1.1, Eagle moved Deezer's archive to _app.asar and put a loader in its place.
+        Legacy = Join-Path $resources '_app.asar'
+        LegacyUnpacked = Join-Path $resources '_app.asar.unpacked'
     }
 }
 
-# The stub mirrors the fields Electron reads from package.json at startup, so
-# Deezer keeps its name, version and user data folder (and stays logged in).
-function New-StubFiles([byte[]]$PackageJson) {
-    $pkg = ConvertFrom-Json -InputObject ($script:Utf8.GetString($PackageJson).TrimStart([char]0xFEFF))
-    $stubPkg = [ordered]@{}
-    foreach ($field in @('name', 'productName', 'version', 'desktopName', 'v8Flags')) {
-        if ($pkg.PSObject.Properties[$field]) { $stubPkg[$field] = $pkg.$field }
+# Writes to $Target a copy of Deezer's archive $Source where Deezer's entry
+# script starts with the Eagle loader. The new script and an eagle.json marker
+# are appended after the original data and only their header entries change,
+# so every other file of Deezer stays byte for byte the same.
+function New-PatchedArchive([string]$Source, [string]$Target) {
+    $header = Read-AsarHeader $Source
+    $tree = ConvertFrom-JsonDictionary $header.Json
+    $pkg = ConvertFrom-Json -InputObject ($script:Utf8.GetString((Read-AsarEntry $Source 'package.json')).TrimStart([char]0xFEFF))
+    $main = (([string]$pkg.main) -replace '\\', '/') -replace '^\./', ''
+    if (-not $main) { $main = 'index.js' }
+    $entry = $null
+    foreach ($candidate in @($main, "$main.js", "$main/index.js")) {
+        $node = Get-AsarNode $tree $candidate
+        if ($null -ne (Get-Key $node 'offset')) { $entry = $candidate; break }
     }
-    $stubPkg['main'] = 'eagle-stub.js'
-    $eagle = [ordered]@{ home = $script:EagleHome; version = Get-EagleVersion }
-    $files = [ordered]@{}
-    $files['eagle-stub.js'] = [IO.File]::ReadAllBytes((Join-Path $script:EagleHome 'core/stub/index.js'))
-    $files['eagle.json'] = $script:Utf8.GetBytes((ConvertTo-JsonText $eagle))
-    $files['package.json'] = $script:Utf8.GetBytes((ConvertTo-JsonText $stubPkg))
-    return $files
+    if (-not $entry) { throw "Deezer's entry script ($main) is not in app.asar. Nothing was changed." }
+    if ($pkg.type -eq 'module' -or $entry -like '*.mjs') {
+        throw 'This version of Deezer is an ES module, which Deezer Eagle cannot patch yet. Nothing was changed.'
+    }
+    $node = Get-AsarNode $tree $entry
+    $code = $script:Utf8.GetString((Read-AsarBytes $Source $header.DataOffset $node))
+    if ($code.Contains($script:LoaderMarker)) { throw 'This copy of Deezer already contains the Eagle loader.' }
+
+    $loader = [IO.File]::ReadAllText((Join-Path $script:EagleHome 'core/loader.js'))
+    $loader = $loader.Replace('__EAGLE_HOME__', (ConvertTo-Json -InputObject $script:EagleHome -Compress))
+    $patchedCode = $script:Utf8.GetBytes((Add-EagleLoader $code $loader))
+    $marker = $script:Utf8.GetBytes((ConvertTo-Json -Compress -InputObject ([ordered]@{ eagle = Get-EagleVersion; home = $script:EagleHome; entry = $entry })))
+
+    $dataLength = (Get-Item -LiteralPath $Source).Length - $header.DataOffset
+    $executable = ''
+    if (Get-Key $node 'executable') { $executable = ',"executable":true' }
+    $entryJson = '{{"size":{0},"offset":"{1}","integrity":{2}{3}}}' -f $patchedCode.Length, $dataLength, (Get-AsarIntegrity $patchedCode), $executable
+    $markerJson = '{{"size":{0},"offset":"{1}","integrity":{2}}}' -f $marker.Length, ($dataLength + $patchedCode.Length), (Get-AsarIntegrity $marker)
+    $json = Set-AsarEntryJson $header.Json ($entry.Split('/')[-1]) ([string]$node['offset']) $entryJson
+    $json = Add-AsarRootEntryJson $json 'eagle.json' $markerJson
+    $headerBytes = ConvertTo-AsarHeaderBytes $json
+
+    $output = [IO.File]::Open($Target, [IO.FileMode]::Create)
+    try {
+        $output.Write($headerBytes, 0, $headerBytes.Length)
+        $original = Open-SharedRead $Source
+        try {
+            [void]$original.Seek($header.DataOffset, [IO.SeekOrigin]::Begin)
+            $original.CopyTo($output)
+        } finally {
+            $original.Dispose()
+        }
+        $output.Write($patchedCode, 0, $patchedCode.Length)
+        $output.Write($marker, 0, $marker.Length)
+    } finally {
+        $output.Dispose()
+    }
+}
+
+# Puts back Deezer's archive moved aside by Eagle before 1.1 (Deezer closed).
+function Undo-LegacyPatch($Paths) {
+    if (-not (Test-Path -LiteralPath $Paths.Legacy)) { return }
+    if (@('legacy', 'missing') -contains (Get-PatchState $Paths.Asar)) {
+        if (Test-Path -LiteralPath $Paths.Asar) { Remove-Item -LiteralPath $Paths.Asar -Force }
+        Move-Item -LiteralPath $Paths.Legacy -Destination $Paths.Asar
+        if (Test-Path -LiteralPath $Paths.LegacyUnpacked) {
+            if (Test-Path -LiteralPath $Paths.Unpacked) { Remove-Item -LiteralPath $Paths.Unpacked -Recurse -Force }
+            Move-Item -LiteralPath $Paths.LegacyUnpacked -Destination $Paths.Unpacked
+        }
+    } else {
+        # Deezer updated itself over the old patch: these are stale leftovers.
+        Remove-Item -LiteralPath $Paths.Legacy -Force
+        if (Test-Path -LiteralPath $Paths.LegacyUnpacked) { Remove-Item -LiteralPath $Paths.LegacyUnpacked -Recurse -Force }
+    }
 }
 
 function Invoke-Apply {
     $dir = Get-DeezerOrFail
     $paths = Get-PatchPaths $dir
-    if (-not (Test-Path -LiteralPath $paths.Asar -PathType Leaf)) { throw "app.asar not found in $dir\resources" }
     Write-Step "Found Deezer: $dir"
-
-    $patched = Test-EagleStub $paths.Asar
-    if ($patched) {
-        if (-not (Test-Path -LiteralPath $paths.Original)) {
-            throw 'The patch is broken (_app.asar is missing). Reinstall Deezer, then run "eagle apply" again.'
-        }
-        $source = $paths.Original
-    } else {
+    $wasRunning = $false
+    if (Test-Path -LiteralPath $paths.Legacy) {
+        $wasRunning = Stop-Deezer $dir
+        Undo-LegacyPatch $paths
+    }
+    $state = Get-PatchState $paths.Asar
+    if ($state -eq 'missing' -or $state -eq 'invalid') {
+        throw 'Deezer''s app.asar is missing or damaged: reinstall Deezer, then run "eagle apply" again.'
+    }
+    if ($state -eq 'original') {
         $exe = Get-DeezerExe $dir
         $fuses = $null
         if ($exe) { $fuses = Get-ElectronFuses $exe }
         if ($fuses -and $fuses.Count -gt 4 -and $fuses[4] -eq '1') {
             throw 'This version of Deezer verifies the integrity of app.asar: Deezer Eagle cannot modify it without breaking it. Nothing was changed.'
         }
-        $source = $paths.Asar
+        # The untouched archive, for "eagle restore" and the next patches.
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $paths.Backup) | Out-Null
+        Copy-Item -LiteralPath $paths.Asar -Destination $paths.Backup -Force
+    } elseif (-not (Test-Path -LiteralPath $paths.Backup)) {
+        throw 'Deezer is patched but Eagle''s backup of it is missing: reinstall Deezer, then run "eagle apply" again.'
     }
-    $stub = New-StubFiles (Read-AsarEntry $source 'package.json')
 
-    $wasRunning = Stop-Deezer $dir
-    if (-not $patched) {
-        # A leftover _app.asar means Deezer updated itself over an older patch.
-        if (Test-Path -LiteralPath $paths.Original) { Remove-Item -LiteralPath $paths.Original -Force }
-        if (Test-Path -LiteralPath $paths.OriginalUnpacked) { Remove-Item -LiteralPath $paths.OriginalUnpacked -Recurse -Force }
-        Move-Item -LiteralPath $paths.Asar -Destination $paths.Original
-        if (Test-Path -LiteralPath $paths.Unpacked) { Move-Item -LiteralPath $paths.Unpacked -Destination $paths.OriginalUnpacked }
-    }
+    Write-Step 'Adding Eagle to Deezer...'
     try {
-        Write-Asar $paths.Asar $stub
+        New-PatchedArchive $paths.Backup $paths.Building
     } catch {
-        if (-not $patched) {
-            Remove-Item -LiteralPath $paths.Asar -Force -ErrorAction SilentlyContinue
-            Move-Item -LiteralPath $paths.Original -Destination $paths.Asar
-            if (Test-Path -LiteralPath $paths.OriginalUnpacked) { Move-Item -LiteralPath $paths.OriginalUnpacked -Destination $paths.Unpacked }
-        }
+        Remove-Item -LiteralPath $paths.Building -Force -ErrorAction SilentlyContinue
+        throw
+    }
+    if (Stop-Deezer $dir) { $wasRunning = $true }
+    try {
+        Remove-Item -LiteralPath $paths.Asar -Force
+        Move-Item -LiteralPath $paths.Building -Destination $paths.Asar
+    } catch {
+        if (-not (Test-Path -LiteralPath $paths.Asar)) { Copy-Item -LiteralPath $paths.Backup -Destination $paths.Asar }
+        Remove-Item -LiteralPath $paths.Building -Force -ErrorAction SilentlyContinue
         throw
     }
     Write-Ok 'Deezer is patched: mods will load the next time it starts.'
@@ -380,13 +515,19 @@ function Invoke-ReapplyAfterUpdate {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logFile) | Out-Null
     $log = { param($Text) Add-Content -LiteralPath $logFile -Value "[$((Get-Date).ToString('s'))] $Text" }
     & $log "Watcher started (pid $PID)."
-    $dir = Find-Deezer
+    $deadline = (Get-Date).AddMinutes(15)
+    # The installer deletes Deezer's files before writing the new ones: rely on
+    # the folder the core passed rather than on finding app.asar right now.
+    $dir = $env:DEEZER_EAGLE_DEEZER_PATH
+    while (-not $dir -and (Get-Date) -lt $deadline) {
+        $dir = Find-Deezer
+        if (-not $dir) { Start-Sleep -Seconds 2 }
+    }
     if (-not $dir) { & $log 'Deezer not found.'; return }
     $paths = Get-PatchPaths $dir
-    $deadline = (Get-Date).AddMinutes(15)
     & $log "Waiting for the Deezer update in $dir"
     while ((Get-Date) -lt $deadline) {
-        if ((Test-Path -LiteralPath $paths.Asar -PathType Leaf) -and -not (Test-EagleStub $paths.Asar)) { break }
+        if ((Get-PatchState $paths.Asar) -eq 'original') { break }
         Start-Sleep -Seconds 2
     }
     if ((Get-Date) -ge $deadline) { & $log 'No update was installed.'; return }
@@ -418,20 +559,23 @@ function Invoke-ReapplyAfterUpdate {
 function Invoke-Restore {
     $dir = Get-DeezerOrFail
     $paths = Get-PatchPaths $dir
-    if (-not (Test-EagleStub $paths.Asar)) {
+    $legacy = Test-Path -LiteralPath $paths.Legacy
+    $state = Get-PatchState $paths.Asar
+    if (-not $legacy -and $state -ne 'patched') {
         Write-Ok 'Deezer is not patched, nothing to restore.'
         return
     }
-    if (-not (Test-Path -LiteralPath $paths.Original)) {
-        throw '_app.asar is missing: reinstall Deezer to repair it.'
+    if ($state -eq 'patched' -and -not (Test-Path -LiteralPath $paths.Backup)) {
+        throw 'Eagle''s backup of Deezer is missing: reinstall Deezer to repair it.'
     }
     $wasRunning = Stop-Deezer $dir
-    Remove-Item -LiteralPath $paths.Asar -Force
-    Move-Item -LiteralPath $paths.Original -Destination $paths.Asar
-    if (Test-Path -LiteralPath $paths.OriginalUnpacked) {
-        if (Test-Path -LiteralPath $paths.Unpacked) { Remove-Item -LiteralPath $paths.Unpacked -Recurse -Force }
-        Move-Item -LiteralPath $paths.OriginalUnpacked -Destination $paths.Unpacked
+    if ($legacy) { Undo-LegacyPatch $paths }
+    if ((Get-PatchState $paths.Asar) -eq 'patched') {
+        Copy-Item -LiteralPath $paths.Backup -Destination $paths.Building -Force
+        Remove-Item -LiteralPath $paths.Asar -Force
+        Move-Item -LiteralPath $paths.Building -Destination $paths.Asar
     }
+    Remove-Item -LiteralPath (Split-Path -Parent $paths.Backup) -Recurse -Force -ErrorAction SilentlyContinue
     Write-Ok 'Deezer is back to its original state.'
     if ($wasRunning) { Start-Deezer $dir }
 }
@@ -857,8 +1001,11 @@ function Invoke-Status {
     } else {
         $paths = Get-PatchPaths $dir
         $state = 'not patched (run "eagle apply")'
-        if (Test-EagleStub $paths.Asar) { $state = 'patched' }
-        elseif (Test-Path -LiteralPath $paths.Original) { $state = 'Deezer was updated, run "eagle apply" again' }
+        switch (Get-PatchState $paths.Asar) {
+            'patched' { $state = 'patched' }
+            'legacy' { $state = 'patched the old way: run "eagle apply" to update it' }
+            'original' { if (Test-Path -LiteralPath $paths.Backup) { $state = 'Deezer was updated, run "eagle apply" again' } }
+        }
         Write-Host "  Deezer : $dir"
         Write-Host "  Patch  : $state"
     }

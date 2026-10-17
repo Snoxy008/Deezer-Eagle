@@ -52,9 +52,14 @@ function sha256(file) {
 }
 
 // @electron/asar caches headers by path: drop it, the file may have been replaced.
-function isStub(file) {
+function isPatched(file) {
   asar.uncache(file);
   return asar.listPackage(file).some((entry) => entry.replace(/^[\\/]/, '') === 'eagle.json');
+}
+
+function readEntry(file, name) {
+  asar.uncache(file);
+  return asar.extractFile(file, name).toString('utf8');
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -101,15 +106,32 @@ async function main() {
   powershell(path.join(root, 'src/cli/eagle.ps1'), 'setup', root);
   eagle('install', path.join(__dirname, 'fixture-mod'), path.join(__dirname, 'broken-mod'), '-y');
   fs.writeFileSync(path.join(home, 'user.css'), '#probe { background-color: rgb(4, 5, 6); }');
-  assert.ok(isStub(path.join(resources, 'app.asar')), 'stub in place');
-  assert.equal(sha256(path.join(resources, '_app.asar')), originalHash, 'original archive kept intact');
+  // Deezer's own archive is modified in place; the untouched one waits in the Eagle folder.
+  const archive = path.join(resources, 'app.asar');
+  const backup = path.join(home, 'backup', 'app.asar');
+  assert.ok(isPatched(archive), 'Deezer patched');
+  assert.deepEqual(fs.readdirSync(resources).filter((name) => /asar/.test(name)).sort(), ['app.asar'], 'a single archive in Deezer');
+  assert.equal(sha256(backup), originalHash, 'untouched backup');
+  asar.uncache(pristine);
+  const originalFiles = asar.listPackage(pristine).sort();
+  assert.deepEqual(
+    asar.listPackage(archive).filter((entry) => !/eagle\.json$/.test(entry)).sort(),
+    originalFiles,
+    'same files as Deezer, plus eagle.json',
+  );
+  for (const name of ['package.json', 'build/index.html', 'build/renderer.js', 'build/preload.js', 'build/app.css']) {
+    assert.equal(readEntry(archive, name), readEntry(pristine, name), `${name} untouched`);
+  }
+  const main = readEntry(archive, 'build/main.js');
+  assert.ok(main.startsWith("'use strict';\n/* Deezer Eagle loader"), 'loader at the top of Deezer\'s entry script');
+  assert.ok(main.endsWith(readEntry(pristine, 'build/main.js').slice("'use strict';".length)), 'followed by Deezer\'s code');
 
   // 1. Everything a user does in one session.
   const first = await launch('full');
   const { page } = first;
   assert.equal(first.name, 'Deezer E2E', 'app name preserved');
   assert.equal(first.version, '7.1.340', 'app version preserved');
-  assert.equal(first.appPath, path.join(resources, '_app.asar'), 'app path points to the original archive');
+  assert.equal(first.appPath, archive, 'Deezer runs from its own archive');
   assert.equal(path.basename(first.userData), 'Deezer E2E', 'user data folder unchanged');
 
   assert.equal(page.eagle, 'object', 'Eagle runtime injected into the local index.html');
@@ -209,23 +231,24 @@ async function main() {
   fs.rmSync(path.join(resources, 'app.asar'));
   await sleep(1000);
   fs.copyFileSync(pristine, path.join(resources, 'app.asar'));
-  assert.ok(!isStub(path.join(resources, 'app.asar')), 'update simulated');
+  assert.ok(!isPatched(archive), 'update simulated');
   let repatched = false;
   for (let i = 0; i < 60 && !repatched; i++) {
     await sleep(1000);
-    repatched = isStub(path.join(resources, 'app.asar'));
+    repatched = isPatched(archive);
   }
   const readLog = (name) => (fs.existsSync(path.join(home, 'logs', name)) ? fs.readFileSync(path.join(home, 'logs', name), 'utf8') : `(no ${name})`);
   const updateLog = readLog('update.log');
   console.log(`${readLog('main.log')}\n${readLog('update-watcher.log')}\n${updateLog}`);
   assert.ok(repatched, 'Deezer patched again after its update');
-  assert.equal(sha256(path.join(resources, '_app.asar')), originalHash, 'the updated archive became the original');
+  assert.equal(sha256(backup), originalHash, 'the updated archive is the new backup');
   assert.match(updateLog, /patched again/);
   fs.rmSync(pending, { recursive: true });
 
   eagle('restore');
   assert.equal(sha256(path.join(resources, 'app.asar')), originalHash, 'restore gives back the original archive');
-  assert.ok(!fs.existsSync(path.join(resources, '_app.asar')), 'no leftover backup');
+  assert.ok(!fs.existsSync(path.join(home, 'backup')), 'no leftover backup');
+  assert.deepEqual(fs.readdirSync(resources).filter((name) => /asar/.test(name)).sort(), ['app.asar'], 'nothing left in Deezer');
 
   fs.rmSync(work, { recursive: true, force: true });
   console.log('\nE2E OK');

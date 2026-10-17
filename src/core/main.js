@@ -1,10 +1,11 @@
 'use strict';
 // Deezer Eagle — main-process core.
 //
-// Loaded by the stub in resources/app.asar right before Deezer's own entry
-// point. Mods never run here: this file reads them from disk, injects their
-// renderer code into Deezer's page, applies their network block lists and
-// answers the Eagle library through the preload bridge.
+// Loaded by the Eagle loader that `eagle apply` adds to the top of Deezer's
+// own entry script, in resources/app.asar. Mods never run here: this file
+// reads them from disk, injects their renderer code into Deezer's page,
+// applies their network block lists and answers the Eagle library through
+// the preload bridge.
 
 const { app, session, ipcMain, dialog, net, shell, BrowserWindow } = require('electron');
 const { execFileSync, spawn } = require('child_process');

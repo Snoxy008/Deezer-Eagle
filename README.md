@@ -114,18 +114,19 @@ a PR that adds it to [`registry.json`](registry.json) so it installs by its plai
 ## How it works
 
 Deezer Desktop is an [Electron](https://www.electronjs.org/) app whose interface is a web page
-(`build/index.html`) bundled in `resources\app.asar`. `eagle apply` renames that archive
-(`app.asar` → `_app.asar`) and replaces it with a small loader that:
+(`build/index.html`) bundled in `resources\app.asar`. `eagle apply` modifies **that archive, in
+place**: it adds a few lines at the top of Deezer's own startup script, and nothing else in
+Deezer changes. No copy of Deezer is made: it is the same app, same name, same data folder (you
+stay logged in). Those few lines start the Deezer Eagle core, which:
 
-- starts the Deezer Eagle core, then the original Deezer app without modifying it
-  (same name, same data folder: you stay logged in);
 - injects the `Eagle` API, the library, the active theme and the enabled mods into Deezer's page;
 - blocks the network requests listed by mods (this is how the adblock works);
 - patches Deezer again after it updates itself.
 
-If anything goes wrong, `eagle restore` puts the original archive back, byte for byte. If the
-Deezer Eagle folder disappears, Deezer starts normally without mods. To start Deezer once
-without any mod, set the `DEEZER_EAGLE_DISABLE=1` environment variable.
+An untouched copy of the archive is kept in the Eagle folder (`backup\app.asar`), and
+`eagle restore` puts it back, byte for byte. If the Deezer Eagle folder disappears, Deezer
+starts normally without mods. To start Deezer once without any mod, set the
+`DEEZER_EAGLE_DISABLE=1` environment variable.
 
 ### Security
 
@@ -157,7 +158,7 @@ npm run test:e2e    # end to end: a fake Deezer under Electron, patched by the r
 | --- | --- |
 | `install.ps1` | one-line installer |
 | `src/cli/eagle.ps1` | the `eagle` command |
-| `src/core/stub/index.js` | the loader placed in `app.asar` |
+| `src/core/loader.js` | the lines `eagle apply` adds to Deezer's startup script |
 | `src/core/main.js`, `lib.js` | main-process core: reads mods, injects them, blocks requests, serves the library |
 | `src/core/preload.js` | bridge between the library and the core |
 | `src/core/client.js` | `Eagle` API, player, themes, sidebar entry and library, injected into the page |
